@@ -89,7 +89,7 @@ module spi_if (
     localparam [7:0] ADDR_CANINTE  = 8'h2B;
     localparam [7:0] ADDR_CANINTF  = 8'h2C;
     localparam [7:0] ADDR_EFLG     = 8'h2D;
-    localparam [7:0] ADDR_CANCTRL  = 8'h0F;   // one of 8 aliases -- confirm against reg_bank.v
+    //localparam [7:0] ADDR_CANCTRL  = 8'h0F;   // one of 8 aliases -- confirm against reg_bank.v
 
     // ---- Quick-address entry points, verified against the datasheet's own
     //      tables ----
@@ -250,11 +250,15 @@ module spi_if (
     // STAGE 6 -- Main FSM
     // =========================================================================
     function is_bitmod_legal(input [7:0] a);
-        is_bitmod_legal = (a == ADDR_TXB0CTRL) || (a == ADDR_TXB1CTRL) || (a == ADDR_TXB2CTRL) ||
-                           (a == ADDR_RXB0CTRL) || (a == ADDR_RXB1CTRL) ||
-                           (a == ADDR_CANINTE)  || (a == ADDR_CANINTF)  || (a == ADDR_EFLG) ||
-                           (a == ADDR_CANCTRL);
-    endfunction
+begin
+    is_bitmod_legal =
+           (a == ADDR_TXB0CTRL) || (a == ADDR_TXB1CTRL) || (a == ADDR_TXB2CTRL) ||
+           (a == ADDR_RXB0CTRL) || (a == ADDR_RXB1CTRL) ||
+           (a == ADDR_CANINTE)  || (a == ADDR_CANINTF)  || (a == ADDR_EFLG) ||
+           (a == 8'h0F) || (a == 8'h1F) || (a == 8'h2F) || (a == 8'h3F) ||
+           (a == 8'h4F) || (a == 8'h5F) || (a == 8'h6F) || (a == 8'h7F);
+end
+endfunction
 
     reg [1:0] op_type;        // which instruction is using the shared S_ADDR/S_READ_DATA/S_WRITE_DATA states
     reg       rxbuf_active;   // was the CURRENT transaction a READ RX BUFFER? (for the RXnIF-clear pulse)
