@@ -63,6 +63,59 @@ module tb_buffers_filters;
         .id(t_id), .data(t_data), .dlc(t_dlc), .ready(ready)
     );
 
+    // =========================================================================
+    // accept_filter DUT, wired into its own pair of rx_buffer instances
+    // (RXB0/RXB1) so rollover and buffer-priority behavior can be tested
+    // end-to-end, not just the combinational match logic in isolation.
+    // =========================================================================
+    reg         af_frame_valid;
+    reg  [10:0] af_rx_id;
+    reg  [63:0] af_rx_data;
+    reg  [3:0]  af_rx_dlc;
+    reg  [10:0] af_rxm0_mask, af_rxf0_id, af_rxf1_id;
+    reg         af_rxb0_accept_all, af_bukt;
+    reg  [10:0] af_rxm1_mask, af_rxf2_id, af_rxf3_id, af_rxf4_id, af_rxf5_id;
+    reg         af_rxb1_accept_all;
+    wire        af_accept_rxb0, af_accept_rxb1;
+    wire [10:0] af_rx_id_out;
+    wire [63:0] af_rx_data_out;
+    wire [3:0]  af_rx_dlc_out;
+    wire        af_filhit0;
+    wire [2:0]  af_filhit1;
+
+    accept_filter af_dut (
+        .frame_valid(af_frame_valid), .rx_id_in(af_rx_id), .rx_data_in(af_rx_data), .rx_dlc_in(af_rx_dlc),
+        .rxm0_mask(af_rxm0_mask), .rxf0_id(af_rxf0_id), .rxf1_id(af_rxf1_id),
+        .rxb0_accept_all(af_rxb0_accept_all), .bukt(af_bukt),
+        .rxm1_mask(af_rxm1_mask), .rxf2_id(af_rxf2_id), .rxf3_id(af_rxf3_id), .rxf4_id(af_rxf4_id), .rxf5_id(af_rxf5_id),
+        .rxb1_accept_all(af_rxb1_accept_all),
+        .rxb0_full(af_rxb0_full),
+        .accept_rxb0(af_accept_rxb0), .accept_rxb1(af_accept_rxb1),
+        .rx_id_out(af_rx_id_out), .rx_data_out(af_rx_data_out), .rx_dlc_out(af_rx_dlc_out),
+        .filhit0(af_filhit0), .filhit1(af_filhit1)
+    );
+
+    // RXB0 / RXB1 -- real rx_buffer instances downstream of the filter, so
+    // "full" feeds back into the filter's rollover logic just like on the
+    // real chip.
+    wire        af_rxb0_full, af_rxb1_full;
+    wire [10:0] af_rxb0_id, af_rxb1_id;
+    reg         af_rxb0_read, af_rxb1_read;
+
+    rx_buffer rxb0_dut (
+        .clk(clk), .reset(reset),
+        .write_enable(af_accept_rxb0), .rx_id(af_rx_id_out), .rx_data(af_rx_data_out), .rx_dlc(af_rx_dlc_out),
+        .cpu_read(af_rxb0_read),
+        .full(af_rxb0_full), .id(af_rxb0_id), .data(), .dlc()
+    );
+
+    rx_buffer rxb1_dut (
+        .clk(clk), .reset(reset),
+        .write_enable(af_accept_rxb1), .rx_id(af_rx_id_out), .rx_data(af_rx_data_out), .rx_dlc(af_rx_dlc_out),
+        .cpu_read(af_rxb1_read),
+        .full(af_rxb1_full), .id(af_rxb1_id), .data(), .dlc()
+    );
+
     always #5 clk = ~clk;
 
     task cycle;
@@ -209,6 +262,114 @@ module tb_buffers_filters;
         check(ready == 0 && t_id == 0 && t_data == 0 && t_dlc == 0, "tx_buffer: reset clears buffer mid-operation");
         reset = 0;
         cycle;
+
+        // =================================================================
+        // accept_filter tests
+        // =================================================================
+        // Reset the RXB0/RXB1 pair via the shared reset before starting.
+        reset = 1; cycle; reset = 0; cycle;
+
+        af_frame_valid = 0; af_rx_id = 0; af_rx_data = 0; af_rx_dlc = 0;
+        af_rxm0_mask = 0; af_rxf0_id = 0; af_rxf1_id = 0; af_rxb0_accept_all = 0; af_bukt = 0;
+        af_rxm1_mask = 0; af_rxf2_id = 0; af_rxf3_id = 0; af_rxf4_id = 0; af_rxf5_id = 0; af_rxb1_accept_all = 0;
+        af_rxb0_read = 0; af_rxb1_read = 0;
+        #1;
+
+        // NOTE ON TIMING: accept_rxb0/accept_rxb1/filhit* are purely
+        // combinational, driven partly by rxb0_full which itself only
+        // updates ON the clock edge that just consumed the acceptance
+        // decision. So each check below samples the combinational outputs
+        // with #2 (mid-cycle, comb settled, before the next edge) and only
+        // THEN calls cycle to actually latch the message into the buffer
+        // and let "full" update for the next step.
+
+        // --- RXB0 accept-all mode: any ID routes to RXB0, not RXB1 ---
+        af_rxb0_accept_all = 1;
+        af_frame_valid = 1; af_rx_id = 11'h555; af_rx_data = 64'hDEAD; af_rx_dlc = 4'h3;
+        #2;
+        check(af_accept_rxb0 == 1, "accept_filter: RXB0 accept-all takes arbitrary ID");
+        check(af_accept_rxb1 == 0, "accept_filter: RXB0 accept-all -- message NOT also sent to RXB1");
+        cycle;
+        check(af_rxb0_full == 1,   "accept_filter: RXB0 buffer actually latched the message");
+        af_frame_valid = 0; af_rxb0_read = 1; cycle; af_rxb0_read = 0; cycle;
+        af_rxb0_accept_all = 0;
+
+        // --- RXB0 exact-match filter (RXF0), RXM0 = all-ones ---
+        af_rxm0_mask = 11'h7FF; af_rxf0_id = 11'h123; af_rxf1_id = 11'h456;
+        af_frame_valid = 1; af_rx_id = 11'h123;
+        #2;
+        check(af_accept_rxb0 == 1, "accept_filter: RXB0 exact match on RXF0 accepts");
+        check(af_filhit0 == 0,     "accept_filter: FILHIT0 reports RXF0 (0) matched");
+        cycle;
+        af_frame_valid = 0; af_rxb0_read = 1; cycle; af_rxb0_read = 0; cycle;
+
+        af_frame_valid = 1; af_rx_id = 11'h456;
+        #2;
+        check(af_accept_rxb0 == 1, "accept_filter: RXB0 exact match on RXF1 accepts");
+        check(af_filhit0 == 1,     "accept_filter: FILHIT0 reports RXF1 (1) matched");
+        cycle;
+        af_frame_valid = 0; af_rxb0_read = 1; cycle; af_rxb0_read = 0; cycle;
+
+        // Give RXB1 a restrictive mask before this check -- otherwise
+        // rxm1_mask is still its init value of 0, which means "accept
+        // all" by design (see accept_filter.v header), and this ID would
+        // legitimately fall through to RXB1.
+        af_rxm1_mask = 11'h7FF; af_rxf2_id = 11'h700; af_rxf3_id = 11'h701; af_rxf4_id = 11'h702; af_rxf5_id = 11'h703;
+
+        af_frame_valid = 1; af_rx_id = 11'h789;
+        #2;
+        check(af_accept_rxb0 == 0, "accept_filter: RXB0 rejects ID matching neither RXF0 nor RXF1");
+        check(af_accept_rxb1 == 0, "accept_filter: rejected ID also doesn't match any RXB1 filter -- dropped entirely");
+        cycle;
+        af_frame_valid = 0; cycle;
+
+        // --- RXB1 filter match (RXF3), independent of RXB0's filters ---
+        af_rxf2_id = 11'h001; af_rxf3_id = 11'h002; af_rxf4_id = 11'h003; af_rxf5_id = 11'h004;
+        af_frame_valid = 1; af_rx_id = 11'h002; // doesn't match RXF0/RXF1, does match RXF3
+        #2;
+        check(af_accept_rxb0 == 0, "accept_filter: RXB1-only match does not go to RXB0");
+        check(af_accept_rxb1 == 1, "accept_filter: RXB1 exact match on RXF3 accepts");
+        check(af_filhit1 == 1,     "accept_filter: FILHIT1 reports RXF3 (index 1) matched");
+        cycle;
+        af_frame_valid = 0; af_rxb1_read = 1; cycle; af_rxb1_read = 0; cycle;
+
+        // --- RXB0 priority: an ID matching BOTH RXB0 and RXB1 filters goes to RXB0 only ---
+        af_rxf0_id = 11'h123; // re-affirm (unchanged from above)
+        af_rxf2_id = 11'h123; // deliberately overlap with RXF0
+        af_frame_valid = 1; af_rx_id = 11'h123;
+        #2;
+        check(af_accept_rxb0 == 1, "accept_filter: overlapping match -- RXB0 wins (higher priority)");
+        check(af_accept_rxb1 == 0, "accept_filter: overlapping match -- RXB1 does NOT also receive it");
+        cycle;
+        af_frame_valid = 0; af_rxb0_read = 1; cycle; af_rxb0_read = 0; cycle;
+        af_rxf2_id = 11'h001; // restore
+
+        // --- Rollover: RXB0 full + BUKT=1 + matching message -> spills into RXB1 ---
+        af_bukt = 1;
+        af_frame_valid = 1; af_rx_id = 11'h123; // matches RXF0
+        cycle; // first message fills RXB0
+        check(af_rxb0_full == 1, "accept_filter: rollover setup -- RXB0 now full");
+
+        af_rx_id = 11'h456; // matches RXF1, RXB0 still full
+        #2;
+        check(af_accept_rxb0 == 0, "accept_filter: rollover -- RXB0 itself does not accept (already full)");
+        check(af_accept_rxb1 == 1, "accept_filter: rollover -- message redirected into RXB1 instead");
+        check(af_filhit1 == 5,     "accept_filter: rollover FILHIT1 encodes RXF1-via-rollover (5)");
+        cycle;
+        af_frame_valid = 0;
+        af_rxb0_read = 1; af_rxb1_read = 1; cycle; af_rxb0_read = 0; af_rxb1_read = 0; cycle;
+        af_bukt = 0;
+
+        // --- Rollover disabled (BUKT=0): message lost, neither buffer accepts ---
+        af_frame_valid = 1; af_rx_id = 11'h123;
+        cycle; // fill RXB0 again
+        af_rx_id = 11'h456;
+        #2;
+        check(af_accept_rxb0 == 0, "accept_filter: BUKT=0 -- RXB0 still full, doesn't accept");
+        check(af_accept_rxb1 == 0, "accept_filter: BUKT=0 -- no rollover, message dropped as expected");
+        cycle;
+        af_frame_valid = 0;
+        af_rxb0_read = 1; cycle; af_rxb0_read = 0; cycle;
 
         // =================================================================
         if (errors == 0)
