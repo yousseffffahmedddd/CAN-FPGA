@@ -24,6 +24,11 @@
 // RXM[1:0] = 11 equivalent: tie rxb0_accept_all / rxb1_accept_all high to
 // bypass that buffer's mask/filters entirely (Section 4.2.2).
 //
+// RTR (remote transmission request) is not itself filtered on -- filters
+// only ever compare against the ID field (Section 4.5) -- but it rides
+// along with id/data/dlc as part of the message and must be forwarded
+// to whichever buffer accepts the frame, same as dlc.
+//
 // Purely combinational -- no internal state, so no clk/reset ports.
 // =============================================================================
 
@@ -33,6 +38,7 @@ module accept_filter (
     input  wire [10:0] rx_id_in,
     input  wire [63:0] rx_data_in,
     input  wire [3:0]  rx_dlc_in,
+    input  wire        rx_rtr_in,     // 1 = remote frame (no data bytes), 0 = data frame
 
     // RXB0 configuration (from reg_bank: RXM0, RXF0, RXF1, RXB0CTRL.RXM[1:0], RXB0CTRL.BUKT)
     input  wire [10:0] rxm0_mask,
@@ -58,6 +64,7 @@ module accept_filter (
     output wire [10:0] rx_id_out,
     output wire [63:0] rx_data_out,
     output wire [3:0]  rx_dlc_out,
+    output wire        rx_rtr_out,      // forwarded unchanged to whichever buffer accepts
 
     // Filter-hit encoding for RXB0CTRL.FILHIT0 / RXB1CTRL.FILHIT[2:0]
     // (Section 4.5.3). Only meaningful when the corresponding accept_* is
@@ -90,6 +97,7 @@ module accept_filter (
     assign rx_id_out   = rx_id_in;
     assign rx_data_out = rx_data_in;
     assign rx_dlc_out  = rx_dlc_in;
+    assign rx_rtr_out  = rx_rtr_in;
 
     // ---- FILHIT encoding (ascending filter number wins, 4.5.4) --------
     always @(*) begin
