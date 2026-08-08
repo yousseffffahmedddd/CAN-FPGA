@@ -341,8 +341,13 @@ endfunction
                             // nnn=000 naturally produces no pulses, matching
                             // "if nnn=000, the command will be ignored" with
                             // no extra logic needed.
-                            end else if ((rx_byte & RTS_MASK) == RTS_ID) begin
+                            // end else if ((rx_byte & RTS_MASK) == RTS_ID) begin
+                            //     rts_pulse <= rx_byte[2:0];
+                            //     state <= S_WAIT_CS;
+                                end else if ((rx_byte & RTS_MASK) == RTS_ID) begin
+                                if (rx_byte[2:0] != 3'b000) begin
                                 rts_pulse <= rx_byte[2:0];
+                                end
                                 state <= S_WAIT_CS;
 
                             // READ STATUS (Sec 12.8): opcode only. status_sel
