@@ -65,20 +65,8 @@ module spi_if (
     // overwrite (data replaces the whole byte).
     //
     // Includes all 5 buffer CTRL registers (all 3 TX + both RX buffers are
-    // implemented), CANINTE/CANINTF/EFLG, and CANCTRL. CANCTRL is included
-    // because Module 4's own SOW (4.1) explicitly initializes it as a real
-    // register ("Initialize all internal control and status registers
-    // (CANCTRL, TXBnCTRL, etc.)") -- it exists in reg_bank.v even though
-    // mode-switching (REQOP) is pinned to Normal mode. In practice only
-    // ABAT is meaningfully mutable here; the protocol engine should ignore
-    // REQOP/OSM/CLKEN writes regardless of what BIT MODIFY lets through.
-    // Excluded: CNF1-3/BFPCTRL/TXRTSCTRL -- Configuration mode and the
-    // physical RXnBF/TXnRTS pins remain fully out of scope.
-    //
-    // NOTE on the CANCTRL address: the datasheet aliases CANCTRL at every
-    // 0x_F address (0x0F, 0x1F, ... 0x7F -- see Table 11-1, row 1111).
-    // 0x0F is used here as the canonical address; confirm this matches
-    // whichever single alias reg_bank.v actually decodes.
+    // implemented), CANINTE/CANINTF/EFLG, and CANCTRL. 
+
     localparam [7:0] ADDR_TXB0CTRL = 8'h30;
     localparam [7:0] ADDR_TXB1CTRL = 8'h40;
     localparam [7:0] ADDR_TXB2CTRL = 8'h50;
@@ -177,8 +165,7 @@ module spi_if (
     );
 
     // =========================================================================
-    // STAGE 4 -- FSM state declarations (ahead of Stage 5 since tx_active
-    // needs `state` and the S_* names).
+    // STAGE 4 -- FSM state declarations
     // =========================================================================
     localparam S_IDLE        = 4'd0,
                S_OPCODE      = 4'd1,   // "Receive opcode" + "Decode opcode" merged: decode
@@ -206,8 +193,7 @@ module spi_if (
     // Only these two states ever legitimately drive SO with real data.
     wire tx_active = (state == S_READ_DATA) || (state == S_SEND_STATUS);
 
-    // SUBTLE BUG THIS CODE HAD TO SOLVE (found in simulation): the SCK
-    // falling edge immediately following a load is the SAME edge that's
+    // the SCK falling edge immediately following a load is the SAME edge that's
     // supposed to present the first output bit -- the load already makes
     // it visible combinationally (serial_out = MSB). If that same edge
     // ALSO shifts, the just-loaded MSB is discarded one bit-time before the
@@ -336,9 +322,7 @@ module spi_if (
                             // be set in a single command" -- each bit
                             // independently requests its own TX buffer, so
                             // the whole 3-bit field passes straight through.
-                            // nnn=000 naturally produces no pulses, matching
-                            // "if nnn=000, the command will be ignored" with
-                            // no extra logic needed.
+                            
                             end else if ((rx_byte & RTS_MASK) == RTS_ID) begin
                             if (rx_byte[2:0] != 3'b000) begin
                             rts_pulse <= rx_byte[2:0];
