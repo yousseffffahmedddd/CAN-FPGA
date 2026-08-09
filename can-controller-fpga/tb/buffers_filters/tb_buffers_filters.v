@@ -89,6 +89,14 @@ module tb_buffers_filters;
     wire        af_filhit0;
     wire [2:0]  af_filhit1;
 
+    // RXB0 / RXB1 -- real rx_buffer instances downstream of the filter, so
+    // "full" feeds back into the filter's rollover logic just like on the
+    // real chip. rtr rides through the filter's passthrough same as dlc.
+    wire        af_rxb0_full, af_rxb1_full;
+    wire [10:0] af_rxb0_id, af_rxb1_id;
+    wire        af_rxb0_rtr, af_rxb1_rtr;
+    reg         af_rxb0_read, af_rxb1_read;
+
     accept_filter af_dut (
         .frame_valid(af_frame_valid), .rx_id_in(af_rx_id), .rx_data_in(af_rx_data), .rx_dlc_in(af_rx_dlc), .rx_rtr_in(af_rx_rtr),
         .rxm0_mask(af_rxm0_mask), .rxf0_id(af_rxf0_id), .rxf1_id(af_rxf1_id),
@@ -100,14 +108,6 @@ module tb_buffers_filters;
         .rx_id_out(af_rx_id_out), .rx_data_out(af_rx_data_out), .rx_dlc_out(af_rx_dlc_out), .rx_rtr_out(af_rx_rtr_out),
         .filhit0(af_filhit0), .filhit1(af_filhit1)
     );
-
-    // RXB0 / RXB1 -- real rx_buffer instances downstream of the filter, so
-    // "full" feeds back into the filter's rollover logic just like on the
-    // real chip. rtr rides through the filter's passthrough same as dlc.
-    wire        af_rxb0_full, af_rxb1_full;
-    wire [10:0] af_rxb0_id, af_rxb1_id;
-    wire        af_rxb0_rtr, af_rxb1_rtr;
-    reg         af_rxb0_read, af_rxb1_read;
 
     rx_buffer rxb0_dut (
         .clk(clk), .reset(reset),
