@@ -218,17 +218,22 @@ module spi_if (
         .serial_out(tx_serial), .parallel_out()
     );
 
-    reg so_r;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) so_r <= 1'b0;
-        else        so_r <= tx_serial;
-    end
+    // reg so_r;
+    // always @(posedge clk or negedge rst_n) begin
+    //     if (!rst_n) so_r <= 1'b0;
+    //     else        so_r <= tx_serial;
+    // end
+
+    
     // High-Z whenever we're not in an active data-output state, matching
     // the datasheet's own timing diagrams (e.g. Fig 12-2 READ: "Data Out
     // High-Impedance" spans the instruction+address bytes, only switching
     // to real data once the data-out phase begins) -- not just when
     // deselected. tx_active already captures exactly that condition.
-    assign so = (cs_n_s || !tx_active) ? 1'bz : so_r;
+    // assign so = (cs_n_s || !tx_active) ? 1'bz : so_r;
+
+        assign so = (cs_n_s || !tx_active) ? 1'bz : tx_serial;
+
 
     // =========================================================================
     // STAGE 6 -- Main FSM
