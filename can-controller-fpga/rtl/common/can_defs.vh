@@ -22,4 +22,7 @@
 // Bit-stuffing configuration shared by bit_stuffer
 `define CAN_STUFF_RUN_LIMIT 5
 
+// CAN 2.0B CRC-15 polynomial used by crc_gen_check
+`define CAN_CRC15_POLY 15'h4599
+
 `endif
