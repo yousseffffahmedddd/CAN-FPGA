@@ -1,3 +1,5 @@
+`include "../common/can_defs.vh"
+
 // =============================================================================
 // Module      : fsm_part1
 // Description : Bit Timing Logic sub-block of the CAN Protocol Engine.
@@ -24,10 +26,10 @@
 // =============================================================================
 
 module fsm_part1 #(
-    parameter integer CLKS_PER_TQ   = 25,   // System clocks per Time Quantum (derived from Fosc & BRP)
-    parameter integer TQ_PER_BIT    = 8,    // Total TQ per bit: Sync_Seg+PropSeg+PS1+PS2 (CAN spec: 8-25)
-    parameter integer SAMPLE_TQ_IDX = 6,    // 0-based TQ index of the sample point (~75% of bit time)
-    parameter         SAM_MODE      = 1'b1  // 0 = single-sample, 1 = triple-sample majority vote
+    parameter integer CLKS_PER_TQ   = `CAN_CLKS_PER_TQ,   // System clocks per Time Quantum (derived from Fosc & BRP)
+    parameter integer TQ_PER_BIT    = `CAN_TQ_PER_BIT,    // Total TQ per bit: Sync_Seg+PropSeg+PS1+PS2 (CAN spec: 8-25)
+    parameter integer SAMPLE_TQ_IDX = `CAN_SAMPLE_TQ_IDX, // 0-based TQ index of the sample point (~75% of bit time)
+    parameter         SAM_MODE      = `CAN_SAM_MODE      // 0 = single-sample, 1 = triple-sample majority vote
 )(
     input  wire clk,             // System clock
     input  wire rst_n,           // Active-low asynchronous reset
@@ -47,17 +49,13 @@ module fsm_part1 #(
     // =========================================================================
     // 2-FF synchronizer on the raw async RX pin (clock-domain-crossing safety)
     // =========================================================================
-    reg rx_ff0, rx_ff1;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            rx_ff0 <= 1'b1;   // bus idles recessive
-            rx_ff1 <= 1'b1;
-        end else begin
-            rx_ff0 <= rx_pin;
-            rx_ff1 <= rx_ff0;
-        end
-    end
-    wire rx_safe = rx_ff1;    // metastability-safe raw RX bit
+    wire rx_safe;
+    rxcan_sync rx_sync_inst (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .rx_pin    (rx_pin),
+        .rx_can_sync(rx_safe)
+    );
 
     // =========================================================================
     // Recessive->Dominant edge detector on rx_safe (checked every clk, not
@@ -65,77 +63,45 @@ module fsm_part1 #(
     // =========================================================================
     reg  rx_safe_prev;
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) rx_safe_prev <= 1'b1;
+        if (!rst_n) rx_safe_prev <= `CAN_RECESSIVE;
         else        rx_safe_prev <= rx_safe;
     end
     wire dominant_edge = (rx_safe_prev == 1'b1) && (rx_safe == 1'b0);
 
     // =========================================================================
-    // Bus-idle tracker: gates hard sync so it only fires on a genuine SOF
-    // edge (bus recessive for the whole previous bit), not mid-frame edges
-    // =========================================================================
-    reg bus_idle_r;
-    assign bus_idle = bus_idle_r;
-
-    wire hard_sync_event = bus_idle_r && dominant_edge;
-
-    // =========================================================================
     // Time Quantum (TQ) pulse generator: divides clk by CLKS_PER_TQ
     // =========================================================================
-    reg [CLK_CNT_W-1:0] clk_div_cnt;
-    reg                 tq_pulse;
+    wire tq_pulse;
+    wire [TQ_CNT_W-1:0] tq_idx_int;
+    wire hard_sync_event_internal;
+    bit_clk_gen #(
+        .CLKS_PER_TQ(CLKS_PER_TQ),
+        .TQ_PER_BIT (TQ_PER_BIT)
+    ) bit_clk_inst (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .hard_sync (hard_sync_event_internal),
+        .tq_pulse  (tq_pulse),
+        .tq_idx    (tq_idx_int)
+    );
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            clk_div_cnt <= {CLK_CNT_W{1'b0}};
-            tq_pulse    <= 1'b0;
-        end
-        else if (hard_sync_event) begin
-            // Restart the TQ phase immediately at the SOF edge
-            clk_div_cnt <= {CLK_CNT_W{1'b0}};
-            tq_pulse    <= 1'b0;
-        end
-        else if (clk_div_cnt == CLKS_PER_TQ - 1) begin
-            clk_div_cnt <= {CLK_CNT_W{1'b0}};
-            tq_pulse    <= 1'b1;   // 1-cycle pulse marking a TQ boundary
-        end
-        else begin
-            clk_div_cnt <= clk_div_cnt + 1'b1;
-            tq_pulse    <= 1'b0;
-        end
-    end
-
-    // =========================================================================
-    // Bit-relative TQ index counter (0 .. TQ_PER_BIT-1), reset by hard sync
-    // =========================================================================
-    reg [TQ_CNT_W-1:0] tq_idx_r;
-    assign tq_index = tq_idx_r;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            tq_idx_r <= {TQ_CNT_W{1'b0}};
-        else if (hard_sync_event)
-            tq_idx_r <= {TQ_CNT_W{1'b0}};
-        else if (tq_pulse) begin
-            if (tq_idx_r == TQ_PER_BIT - 1)
-                tq_idx_r <= {TQ_CNT_W{1'b0}};
-            else
-                tq_idx_r <= tq_idx_r + 1'b1;
-        end
-    end
+    assign tq_index = tq_idx_int;
 
     // =========================================================================
     // Sample<2:0>: shift register holding the last 3 samples of rx_safe,
     // captured once per TQ pulse
     // =========================================================================
-    reg [2:0] sample_shift; // sample_shift[0] = most recent sample
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            sample_shift <= 3'b111; // recessive default
-        else if (tq_pulse)
-            sample_shift <= {sample_shift[1:0], rx_safe};
-    end
+    wire [2:0] sample_shift;
+    shift_reg #(.WIDTH(3)) sample_shift_reg (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .load        (1'b0),
+        .shift_en    (tq_pulse),
+        .serial_in   (rx_safe),
+        .parallel_in (3'b111),
+        .serial_out  (),
+        .parallel_out(sample_shift)
+    );
 
     // =========================================================================
     // Majority Decision block (combinational 2-of-3 vote)
@@ -147,7 +113,23 @@ module fsm_part1 #(
     // =========================================================================
     // SAM mux: selects single-sample vs. triple-sample majority result
     // =========================================================================
-    wire sam_selected_bit = SAM_MODE ? majority_bit : sample_shift[0];
+    wire sam_selected_bit = (SAM_MODE) ? majority_bit : sample_shift[0];
+
+    // =========================================================================
+    // Bus-idle tracker: gates hard sync so it only fires on a genuine SOF
+    // edge (bus recessive for the whole previous bit), not mid-frame edges
+    // =========================================================================
+    reg bus_idle_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            bus_idle_r <= `CAN_RECESSIVE;
+        else if (tq_pulse && (tq_idx_int == SAMPLE_TQ_IDX))
+            bus_idle_r <= sam_selected_bit;
+    end
+    assign bus_idle = bus_idle_r;
+
+    wire hard_sync_event = bus_idle_r && dominant_edge;
+    assign hard_sync_event_internal = hard_sync_event;
 
     // =========================================================================
     // Output stage: at the sample-point TQ, latch the synchronized bit and
@@ -156,12 +138,12 @@ module fsm_part1 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             bit_tick    <= 1'b0;
-            rx_can_sync <= 1'b1; // recessive default
+            rx_can_sync <= `CAN_RECESSIVE; // recessive default
         end
         else begin
             bit_tick <= 1'b0; // default: deassert (1-cycle pulse)
 
-            if (tq_pulse && (tq_idx_r == SAMPLE_TQ_IDX)) begin
+            if (tq_pulse && (tq_idx_int == SAMPLE_TQ_IDX)) begin
                 rx_can_sync <= sam_selected_bit;
                 bit_tick    <= 1'b1;
             end
@@ -174,8 +156,8 @@ module fsm_part1 #(
     // =========================================================================
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
-            bus_idle_r <= 1'b1; // assume idle at reset
-        else if (tq_pulse && (tq_idx_r == SAMPLE_TQ_IDX))
+            bus_idle_r <= `CAN_RECESSIVE; // assume idle at reset
+        else if (tq_pulse && (tq_idx_int == SAMPLE_TQ_IDX))
             bus_idle_r <= sam_selected_bit; // 1=recessive->still idle, 0=dominant->frame active
     end
 

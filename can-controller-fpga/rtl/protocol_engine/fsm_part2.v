@@ -1,3 +1,5 @@
+`include "../common/can_defs.vh"
+
 // =============================================================================
 // Module      : fsm_part2
 // Description : Core field-level FSM for the CAN Protocol Engine.
@@ -49,12 +51,12 @@ module fsm_part2 (
     // =========================================================================
     // Req #2: Explicit FSM state encoding
     // =========================================================================
-    localparam [2:0] STATE_IDLE        = 3'b000;
-    localparam [2:0] STATE_SOF         = 3'b001;
-    localparam [2:0] STATE_ARBITRATION = 3'b010;
-    localparam [2:0] STATE_CONTROL     = 3'b011;
-    localparam [2:0] STATE_DATA        = 3'b100;
-    localparam [2:0] STATE_CRC         = 3'b101;
+    localparam [2:0] STATE_IDLE        = `CAN_STATE_IDLE;
+    localparam [2:0] STATE_SOF         = `CAN_STATE_SOF;
+    localparam [2:0] STATE_ARBITRATION = `CAN_STATE_ARBITRATION;
+    localparam [2:0] STATE_CONTROL     = `CAN_STATE_CONTROL;
+    localparam [2:0] STATE_DATA        = `CAN_STATE_DATA;
+    localparam [2:0] STATE_CRC         = `CAN_STATE_CRC;
 
     // Field bit widths (used for bit_cnt terminal-count comparisons)
     localparam integer ARB_BITS = 12; // 11-bit ID + 1-bit RTR
@@ -172,14 +174,12 @@ module fsm_part2 (
             bit_cnt         <= 7'd0;
             data_bit_target <= 7'd0;
             rx_prev         <= 1'b1;      // bus idles recessive
-            tx_bit_reg      <= 1'b1;
-            tx_can          <= 1'b1;      // recessive by default
+            tx_bit_reg      <= `CAN_RECESSIVE;
+            tx_can          <= `CAN_RECESSIVE;      // recessive by default
             tx_en           <= 1'b0;
             piso_req        <= 1'b0;
             sipo_data_out   <= 1'b0;
             sipo_valid      <= 1'b0;
-            bit_error       <= 1'b0;
-            arb_lost        <= 1'b0;
             latched_dlc     <= 4'd0;
         end
         else begin
@@ -200,7 +200,7 @@ module fsm_part2 (
                 STATE_IDLE: begin
                     bit_cnt  <= 7'd0;
                     tx_en    <= 1'b0;
-                    tx_can   <= 1'b1;    // recessive
+                    tx_can   <= `CAN_RECESSIVE;    // recessive
                     arb_lost <= 1'b0;    // clear stale flag entering new frame
                 end
 
@@ -209,7 +209,7 @@ module fsm_part2 (
                 // -------------------------------------------------------
                 STATE_SOF: begin
                     tx_en  <= 1'b1;
-                    tx_can <= 1'b0;      // dominant
+                    tx_can <= `CAN_DOMINANT;      // dominant
                     if (bit_tick) begin
                         bit_cnt       <= 7'd0;      // reset for next field (ARBITRATION)
                         // Req #6: SIPO tap - SOF bit is also "observed"

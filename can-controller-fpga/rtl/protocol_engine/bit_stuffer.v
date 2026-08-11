@@ -1,3 +1,5 @@
+`include "../common/can_defs.vh"
+
 // =============================================================================
 // Module      : bit_stuffer
 // Description : Bit Stuffing (TX) / Bit Destuffing (RX) sub-block of the CAN
@@ -48,11 +50,37 @@ module bit_stuffer (
     output wire stuff_tx_bit     // Value to drive when insert_stuff=1 (opposite of last observed bit)
 );
 
-    localparam integer RUN_LIMIT = 5; // stuff after 5 consecutive identical bits
+    localparam integer RUN_LIMIT = `CAN_STUFF_RUN_LIMIT; // stuff after 5 consecutive identical bits
 
-    reg [2:0] same_count;   // consecutive identical-bit run length observed so far
-    reg       last_bit;     // polarity of the last bit in that run
-    reg       expect_stuff; // 1 = the NEXT bit_tick is the mandatory stuff bit
+    reg        same_count_enable;
+    reg        same_count_load;
+    reg [2:0]  same_count_load_value;
+    wire [2:0] same_count;   // consecutive identical-bit run length observed so far
+    reg        last_bit;     // polarity of the last bit in that run
+    reg        expect_stuff; // 1 = the NEXT bit_tick is the mandatory stuff bit
+    reg        stuff_error_q;
+
+    sat_counter #(
+        .WIDTH(3),
+        .MAX_VAL(`CAN_STUFF_RUN_LIMIT)
+    ) same_count_counter (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .enable     (same_count_enable),
+        .load       (same_count_load),
+        .load_value (same_count_load_value),
+        .count      (same_count),
+        .overflow   ()
+    );
+
+    flag_reg #(.WIDTH(1)) stuff_error_reg (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .set_value(1'b1),
+        .set      (bit_tick && stuffing_en && expect_stuff && (rx_can_sync == last_bit)),
+        .clear    (bit_tick),
+        .q        (stuff_error_q)
+    );
 
     // TX-side outputs are simple combinational reads of the same tracked state
     assign insert_stuff = stuffing_en && expect_stuff;
@@ -60,24 +88,30 @@ module bit_stuffer (
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            same_count    <= 3'd0;
-            last_bit      <= 1'b1;   // recessive default (idle bus)
+            same_count_enable <= 1'b0;
+            same_count_load   <= 1'b0;
+            same_count_load_value <= 3'd0;
+            last_bit      <= `CAN_RECESSIVE;   // recessive default (idle bus)
             expect_stuff  <= 1'b0;
             data_bit_tick <= 1'b0;
-            data_bit      <= 1'b1;
+            data_bit      <= `CAN_RECESSIVE;
             stuff_error   <= 1'b0;
         end
         else begin
             data_bit_tick <= 1'b0;   // defaults: 1-cycle pulses deassert unless re-driven below
             stuff_error   <= 1'b0;
+            stuff_error_q <= 1'b0;
+            same_count_enable <= 1'b0;
+            same_count_load   <= 1'b0;
 
             if (!stuffing_en) begin
                 // Outside the stuffed region (IDLE, or ACK/EOF/Intermission once
                 // fsm_part3 exists): pass bits straight through, reset tracking
                 // so the next frame's SOF starts a clean run count.
-                same_count   <= 3'd0;
+                same_count_load <= 1'b1;
+                same_count_load_value <= 3'd0;
                 expect_stuff <= 1'b0;
-                last_bit     <= 1'b1;
+                last_bit     <= `CAN_RECESSIVE;
                 if (bit_tick) begin
                     data_bit_tick <= 1'b1;
                     data_bit      <= rx_can_sync;
@@ -90,7 +124,8 @@ module bit_stuffer (
                     if (rx_can_sync == last_bit)
                         stuff_error <= 1'b1;      // violation: not the opposite polarity
                     last_bit     <= rx_can_sync;
-                    same_count   <= 3'd1;         // run restarts, stuff bit counts as bit 1
+                    same_count_load <= 1'b1;         // run restarts, stuff bit counts as bit 1
+                    same_count_load_value <= 3'd1;
                     expect_stuff <= 1'b0;
                     // data_bit_tick intentionally NOT asserted: this bit is not frame data
                 end
@@ -102,10 +137,11 @@ module bit_stuffer (
                     if (rx_can_sync == last_bit) begin
                         if (same_count == RUN_LIMIT - 1)
                             expect_stuff <= 1'b1;  // 5th identical bit: next bit must be stuffed
-                        same_count <= same_count + 1'b1;
+                        same_count_enable <= 1'b1;
                     end
                     else begin
-                        same_count   <= 3'd1;      // run broken, start counting new polarity
+                        same_count_load <= 1'b1;      // run broken, start counting new polarity
+                        same_count_load_value <= 3'd1;
                         expect_stuff <= 1'b0;
                     end
                     last_bit <= rx_can_sync;
