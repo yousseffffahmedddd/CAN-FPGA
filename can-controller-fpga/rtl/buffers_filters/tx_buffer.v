@@ -25,8 +25,11 @@ module tx_buffer (
             ready <= 1'b0;
         end
         else begin
-            // Store a new message when the CPU writes one
-            if (write_enable) begin
+            // Store a new message only if no message is currently pending
+            // transmission -- prevents an in-flight message from being
+            // overwritten before it's actually sent (SOW: "retain stored
+            // data until transmission is completed").
+            if (write_enable && !ready) begin
                 id   <= tx_id;
                 data <= tx_data;
                 dlc  <= tx_dlc;
