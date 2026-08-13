@@ -1,4 +1,4 @@
-`include "common/can_defs.vh"
+`include "../common/can_defs.vh"
 
 // =============================================================================
 // Module      : error_mgmt

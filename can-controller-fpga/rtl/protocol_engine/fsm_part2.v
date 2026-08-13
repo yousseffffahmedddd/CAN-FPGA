@@ -16,7 +16,7 @@ module fsm_part2 (
     // Clock / Reset
     // ---------------------------------------------------------------
     input  wire        clk,            // System clock
-    input  wire        rst_n,          // Active-low asynchronous reset
+    input  wire        rst_n,          // no
 
     // ---------------------------------------------------------------
     // Bit timing / bus interface
