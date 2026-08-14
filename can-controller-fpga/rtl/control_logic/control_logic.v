@@ -1,4 +1,4 @@
-`include "can_defs.vh"
+`include "../common/can_defs.vh"
 
 module control_logic (
     input  wire        clk,
