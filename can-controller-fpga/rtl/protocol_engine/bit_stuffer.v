@@ -100,7 +100,6 @@ module bit_stuffer (
         else begin
             data_bit_tick <= 1'b0;   // defaults: 1-cycle pulses deassert unless re-driven below
             stuff_error   <= 1'b0;
-            stuff_error_q <= 1'b0;
             same_count_enable <= 1'b0;
             same_count_load   <= 1'b0;
 

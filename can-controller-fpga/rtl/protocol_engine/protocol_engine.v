@@ -40,6 +40,8 @@ module protocol_engine (
     output wire        err_passive,
     output wire        bus_off,
     output wire        ewarn,
+    output wire        tx_done_pulse,
+    output wire        rx_done_pulse,
 
     // Optional visibility outputs
     output wire [4:0]  tq_index,
@@ -204,6 +206,8 @@ module protocol_engine (
 
     assign tx_en = tx_en_from_fsm2_or_f3;
     assign tx_can = tx_can_from_fsm2_or_f3;
+    assign tx_done_pulse = f3_tx_success_pulse;
+    assign rx_done_pulse = f3_rx_success_pulse;
 
     // -------------------------------------------------------------------------
     // Sample tx_en at the SOF entry to determine whether this node was

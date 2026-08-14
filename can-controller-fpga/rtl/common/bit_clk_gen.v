@@ -1,5 +1,5 @@
 module bit_clk_gen #(
-    parameter integer CLKS_PER_TQ = 25,
+    parameter integer CLKS_PER_TQ = 1,
     parameter integer TQ_PER_BIT  = 8
 )(
     input  wire clk,
@@ -23,8 +23,16 @@ module bit_clk_gen #(
         end
         else if (hard_sync) begin
             clk_div_cnt <= {CLK_CNT_W{1'b0}};
-            tq_pulse    <= 1'b0;
+            tq_pulse    <= 1'b1;
             tq_idx      <= {TQ_CNT_W{1'b0}};
+        end
+        else if (CLKS_PER_TQ == 1) begin
+            clk_div_cnt <= {CLK_CNT_W{1'b0}};
+            tq_pulse    <= 1'b1;
+            if (tq_idx == TQ_PER_BIT - 1)
+                tq_idx <= {TQ_CNT_W{1'b0}};
+            else
+                tq_idx <= tq_idx + 1'b1;
         end
         else if (clk_div_cnt == CLKS_PER_TQ - 1) begin
             clk_div_cnt <= {CLK_CNT_W{1'b0}};

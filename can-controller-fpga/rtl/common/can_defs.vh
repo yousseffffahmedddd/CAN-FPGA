@@ -14,7 +14,9 @@
 `define CAN_STATE_CRC         3'b101
 
 // Default timing configuration for fsm_part1
-`define CAN_CLKS_PER_TQ   25
+// 1 MHz system clock, 125 kbps CAN target:
+//   1 TQ per tick, 8 TQ per bit -> 1 MHz / 8 = 125 kHz
+`define CAN_CLKS_PER_TQ   1
 `define CAN_TQ_PER_BIT    8
 `define CAN_SAMPLE_TQ_IDX 6
 `define CAN_SAM_MODE      1'b1
