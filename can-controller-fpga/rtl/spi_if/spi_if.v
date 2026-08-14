@@ -21,7 +21,7 @@ module spi_if (
     localparam [7:0] OP_READSTAT = 8'hA0;
     localparam [7:0] OP_RXSTAT   = 8'hB0;
     localparam [7:0] LOADTX_MASK = 8'hFE, LOADTX_ID = 8'h40;
-    localparam [7:0] RXBUF_MASK  = 8'hF9, RXBUF_ID  = 8'h90;
+    localparam [7:0] RXBUF_MASK  = 8'hFD, RXBUF_ID  = 8'h90;
     localparam [7:0] OP_RTS_TXB0 = 8'h81;
     localparam [7:0] ADDR_TXB_SIDH = 8'h31, ADDR_TXB_D0 = 8'h36;
     localparam [7:0] ADDR_RXB_SIDH = 8'h61, ADDR_RXB_D0 = 8'h66;
