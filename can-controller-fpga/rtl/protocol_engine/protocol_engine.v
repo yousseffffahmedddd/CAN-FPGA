@@ -77,6 +77,7 @@ module protocol_engine (
     wire        arb_lost_w;
     wire [3:0]  latched_dlc_w;
     wire [2:0]  current_state_w;
+    wire        fsm2_bit_tick;
 
     // FSM Part 3 signals
     wire        stuffing_en_w;
@@ -132,15 +133,17 @@ module protocol_engine (
 // -------------------------------------------------------------------------
     // 3) Frame Serializer / Deserializer Adapter Logic
     // -------------------------------------------------------------------------
-    reg [107:0] tx_frame_shift;
-    reg [107:0] rx_frame_shift;
-    reg [6:0]   bit_cnt;
+    // 82 logical bits after SOF: ID + RTR + IDE + r0 + DLC + DATA.
+    // The old 108-bit register zero-extended this 82-bit concatenation and
+    // injected 26 false dominant bits ahead of the real identifier.
+    reg [81:0] tx_frame_shift;
+    reg [81:0] rx_frame_shift;
 
     // // Construct simple standard frame shift register (ID + RTR + IDE + DLC + DATA)
     // always @(posedge clk or negedge rst_n) begin
     //     if (!rst_n) begin
-    //         tx_frame_shift <= 108'd0;
-    //     end else if (txb_txreq && (current_state_w == 3'd0)) begin 
+    //         tx_frame_shift <= 82'd0;
+    //     end else if (txb_txreq && (current_state_w == `CAN_STATE_IDLE)) begin 
     //         // Pack fields: 11-bit ID + 1-bit RTR + 1-bit IDE (0) + 4-bit DLC + 64-bit Data
     //         tx_frame_shift <= {txb_id, txb_rtr, 1'b0, txb_dlc, txb_data};
     //     end else if (bit_tick && piso_req) begin
@@ -149,31 +152,32 @@ module protocol_engine (
     // end
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            tx_frame_shift <= 108'd0;
-        end else if (txb_txreq && (current_state_w == 3'd0)) begin 
-            // Explicitly map: 11-bit ID, RTR, IDE (0), r0 (0), DLC, and Data payload
+            tx_frame_shift <= 82'd0;
+        end else if (txb_txreq && (current_state_w == `CAN_STATE_IDLE)) begin
+            // Exact MSB-first standard-frame fields following SOF.
             tx_frame_shift <= {txb_id, txb_rtr, 1'b0, 1'b0, txb_dlc, txb_data};
-        end else if (bit_tick && piso_req) begin
-            tx_frame_shift <= {tx_frame_shift[106:0], 1'b1}; 
+        end else if (fsm2_bit_tick && piso_req) begin
+            // Do not consume a logical field bit while a stuff bit is inserted.
+            tx_frame_shift <= {tx_frame_shift[80:0], 1'b1}; 
         end
     end
 
-    assign piso_data_in = tx_frame_shift[107];
+    assign piso_data_in = tx_frame_shift[81];
     assign piso_valid   = txb_txreq;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            rx_frame_shift <= 108'd0;
+            rx_frame_shift <= 82'd0;
         end else if (sipo_valid) begin
-            rx_frame_shift <= {rx_frame_shift[106:0], sipo_data_out};
+            rx_frame_shift <= {rx_frame_shift[80:0], sipo_data_out};
         end
     end
 
     // Map deserialized frame fields to RX buffer outputs
-    assign rxb_id   = rx_frame_shift[107:97];
-    assign rxb_rtr  = rx_frame_shift[96];
-    assign rxb_dlc  = rx_frame_shift[94:91];
-    assign rxb_data = rx_frame_shift[90:27];
+    assign rxb_id   = rx_frame_shift[81:71];
+    assign rxb_rtr  = rx_frame_shift[70];
+    assign rxb_dlc  = rx_frame_shift[67:64];
+    assign rxb_data = rx_frame_shift[63:0];
 
     // -------------------------------------------------------------------------
     // 4) Core Field State Machine (fsm_part2)
@@ -181,10 +185,14 @@ module protocol_engine (
   // -------------------------------------------------------------------------
     // 4) Core Field State Machine (fsm_part2)
     // -------------------------------------------------------------------------
+    // Stuff bits occupy physical time but are not logical field bits.
+    // Freeze fsm_part2 and the serializer while the stuffing mux owns the bus.
+    assign fsm2_bit_tick = bit_tick && !(insert_stuff && (tx_en_fsm2 || f3_tx_en_out));
+
     fsm_part2 f2 (
         .clk           (clk),
         .rst_n         (rst_n),
-        .bit_tick      (bit_tick),
+        .bit_tick      (fsm2_bit_tick),
         .rx_can_sync   (rx_can_sync),
         .txb_txreq     (txb_txreq),          // <--- Connect transmission request
         .dlc           (txb_dlc),            // <--- Connect DLC for frame length handling
@@ -288,9 +296,16 @@ module protocol_engine (
     // -------------------------------------------------------------------------
     // 7) Output Transmission Drive Routing
     // -------------------------------------------------------------------------
-    wire tx_en_mux  = f3_tx_en_out ? 1'b1 : tx_en_fsm2;
-    wire tx_can_mux = f3_tx_en_out ? f3_tx_can_out :
-                      ((insert_stuff && tx_en_fsm2) ? stuff_tx_bit : tx_can_fsm2);
+    // Keep TX enable continuous across the fsm_part2 -> fsm_part3 CRC
+    // handoff.  fsm_part2 releases tx_en as it enters CRC, while fsm_part3
+    // takes one system clock to observe that state and assert its override.
+    // The old mux therefore produced a one-clock low glitch in the middle of
+    // every transmitted frame.
+    wire tx_crc_phase = (current_state_w == `CAN_STATE_CRC) && txb_txreq;
+    wire tx_en_mux    = tx_crc_phase || f3_tx_en_out || tx_en_fsm2;
+    wire tx_can_base  = (tx_crc_phase || f3_tx_en_out) ? f3_tx_can_out
+                                                       : tx_can_fsm2;
+    wire tx_can_mux   = (insert_stuff && tx_en_mux) ? stuff_tx_bit : tx_can_base;
 
     assign tx_en          = tx_en_mux;
     assign tx_can         = tx_can_mux;

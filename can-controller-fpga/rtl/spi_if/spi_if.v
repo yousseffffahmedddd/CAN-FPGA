@@ -273,15 +273,20 @@ module spi_if (
     reg [7:0] tx_shift;
     reg [7:0] mask_reg;
     reg       load_rdata_req;
+    reg       read_rx_data_seen;
 
     // Opcodes categorization
     wire is_status_op  = (cmd_reg == OP_READ_STATUS) || (cmd_reg == OP_RX_STATUS);
-    wire is_read_op    = (cmd_reg == OP_READ) || is_status_op;
-    wire is_load_tx    = (cmd_reg[7:3] == 5'b01000); // 0x40 to 0x4F (Load TX Buffer)
+    // Reduced design supports the two RXB0 READ RX BUFFER entry points:
+    // 0x90 -> RXB0SIDH, 0x92 -> RXB0D0. RXB1 opcodes are out of scope.
+    wire is_read_rx    = (cmd_reg == 8'h90) || (cmd_reg == 8'h92);
+    wire is_read_op    = (cmd_reg == OP_READ) || is_status_op || is_read_rx;
+    wire is_load_tx    = (cmd_reg == 8'h40) || (cmd_reg == 8'h41);
 
     wire drive_miso    = cs_active && (
                            (is_status_op && byte_cnt >= 3'd1) ||
-                           (cmd_reg == OP_READ && byte_cnt >= 3'd2)
+                           (cmd_reg == OP_READ && byte_cnt >= 3'd2) ||
+                           (is_read_rx && byte_cnt >= 3'd2)
                          );
 
     assign so = drive_miso ? tx_shift[7] : 1'bz;
@@ -301,8 +306,9 @@ module spi_if (
             we             <= 1'b0;
             reset_pulse    <= 1'b0;
             rts_pulse      <= 1'b0;
-            rxbuf_done     <= 1'b0;
-            load_rdata_req <= 1'b0;
+            rxbuf_done       <= 1'b0;
+            load_rdata_req   <= 1'b0;
+            read_rx_data_seen <= 1'b0;
         end else if (!cs_active) begin
             bit_cnt        <= 3'd0;
             byte_cnt       <= 3'd0;
@@ -310,18 +316,27 @@ module spi_if (
             we             <= 1'b0;
             reset_pulse    <= 1'b0;
             rts_pulse      <= 1'b0;
-            rxbuf_done     <= 1'b0;
-            load_rdata_req <= 1'b0;
+            // READ RX BUFFER is considered complete only if at least one data
+            // byte was clocked out before CS rose. Generate a single system-clock
+            // pulse so Control Logic can clear RX0IF and the RX buffer full flag.
+            rxbuf_done       <= read_rx_data_seen;
+            load_rdata_req   <= 1'b0;
+            read_rx_data_seen <= 1'b0;
         end else begin
             // Single-cycle default pulses
             reset_pulse <= 1'b0;
             rts_pulse   <= 1'b0;
             rxbuf_done  <= 1'b0;
 
-            // Deassert write enable after 1 system clock cycle and auto-increment address
+            // Deassert write enable after one system-clock cycle. LOAD TX
+            // uses the reduced register map, so skip the omitted EID8/EID0
+            // addresses between SIDL (0x32) and DLC (0x35).
             if (we) begin
-                we   <= 1'b0;
-                addr <= addr + 8'd1;
+                we <= 1'b0;
+                if (is_load_tx && (addr == 8'h32))
+                    addr <= 8'h35;
+                else
+                    addr <= addr + 8'd1;
             end
 
             // Load rdata into tx_shift 1 clock cycle after addr is updated
@@ -346,14 +361,22 @@ module spi_if (
                             
                             if (incoming_byte == OP_RESET) begin
                                 reset_pulse <= 1'b1;
-                            end else if (incoming_byte[7:3] == 5'b10000) begin
-                                // RTS Command (1000 0nnn -> 0x80 to 0x8F)
+                            end else if ((incoming_byte == 8'h90) || (incoming_byte == 8'h92)) begin
+                                // READ RX BUFFER, reduced to RXB0 only. 0x90 starts
+                                // at SIDH; 0x92 starts directly at D0.
+                                addr             <= (incoming_byte == 8'h90) ? 8'h61 : 8'h66;
+                                byte_cnt         <= 3'd2;
+                                load_rdata_req   <= 1'b1;
+                                read_rx_data_seen <= 1'b0;
+                            end else if (incoming_byte == 8'h81) begin
+                                // Reduced design has TXB0 only; reject TXB1/TXB2
+                                // selection opcodes instead of aliasing them to TXB0.
                                 rts_pulse <= 1'b1;
-                            end else if (incoming_byte[7:3] == 5'b01000) begin
-                                // Load TX Buffer Command (0100 0nnn -> 0x40 to 0x4F)
-                                // Map buffer selection to base address (TXB0SIDH = 0x31)
-                                addr     <= 8'h31 + ({5'b0, incoming_byte[2:0]} * 16'd14);
-                                byte_cnt <= 3'd2; // Skip address byte, jump straight to data stream
+                            end else if ((incoming_byte == 8'h40) || (incoming_byte == 8'h41)) begin
+                                // LOAD TX BUFFER has two entry points in the single
+                                // TX buffer: 0x40 starts at SIDH, 0x41 starts at D0.
+                                addr     <= (incoming_byte == 8'h40) ? 8'h31 : 8'h36;
+                                byte_cnt <= 3'd2; // No explicit address byte
                             end else begin
                                 byte_cnt <= 3'd1;
                                 case (incoming_byte)
@@ -365,7 +388,9 @@ module spi_if (
                         end
 
                         3'd1: begin
-                            // Byte 1: Address (for WRITE, READ, BIT_MODIFY)
+                            // Byte 1: address for normal READ/WRITE. Status
+                            // commands remain in this state and reload the live
+                            // status byte after each completed output byte.
                             if (cmd_reg == OP_READ) begin
                                 addr           <= incoming_byte;
                                 byte_cnt       <= 3'd2;
@@ -373,6 +398,10 @@ module spi_if (
                             end else if (cmd_reg == OP_WRITE || cmd_reg == OP_BIT_MODIFY) begin
                                 addr     <= incoming_byte;
                                 byte_cnt <= 3'd2;
+                            end else if (cmd_reg == OP_READ_STATUS) begin
+                                tx_shift <= status_byte;
+                            end else if (cmd_reg == OP_RX_STATUS) begin
+                                tx_shift <= rxstatus_byte;
                             end
                         end
 
@@ -386,6 +415,14 @@ module spi_if (
                                 OP_READ: begin
                                     addr           <= addr + 8'd1;
                                     load_rdata_req <= 1'b1;
+                                end
+                                8'h90, 8'h92: begin
+                                    // One RX byte has completed. Continue sequential
+                                    // read-back and remember to pulse rxbuf_done when
+                                    // CS is released.
+                                    read_rx_data_seen <= 1'b1;
+                                    addr              <= addr + 8'd1;
+                                    load_rdata_req    <= 1'b1;
                                 end
                                 OP_BIT_MODIFY: begin
                                     mask_reg <= incoming_byte;

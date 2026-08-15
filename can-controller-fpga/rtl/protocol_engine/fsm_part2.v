@@ -86,7 +86,7 @@ module fsm_part2 (
             end
 
             STATE_CRC: begin
-                if (bit_tick && (bit_cnt == 7'd15))
+                if (bit_tick && (bit_cnt == 7'd14))
                     next_state = STATE_ACK;
             end
 
@@ -113,8 +113,18 @@ module fsm_part2 (
             tx_can        <= 1'b1;
             arb_lost      <= 1'b0;
             piso_req      <= 1'b0;
+            sipo_data_out <= 1'b1;
+            sipo_valid    <= 1'b0;
+            bit_error     <= 1'b0;
             latched_dlc   <= 4'd0;
-        end else if (bit_tick) begin
+        end else begin
+            sipo_valid <= 1'b0;
+            bit_error  <= 1'b0;
+
+            if (bit_tick) begin
+                sipo_data_out <= rx_can_sync;
+                sipo_valid    <= 1'b1;
+
             if (current_state != next_state) begin
                 bit_cnt       <= 7'd0;
                 current_state <= next_state;
@@ -150,6 +160,7 @@ module fsm_part2 (
                     piso_req <= 1'b0;
                 end
             endcase
+            end
         end
     end
 

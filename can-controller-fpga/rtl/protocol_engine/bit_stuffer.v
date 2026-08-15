@@ -58,7 +58,7 @@ module bit_stuffer (
     wire [2:0] same_count;   // consecutive identical-bit run length observed so far
     reg        last_bit;     // polarity of the last bit in that run
     reg        expect_stuff; // 1 = the NEXT bit_tick is the mandatory stuff bit
-    reg        stuff_error_q;
+    wire       stuff_error_q;
 
     sat_counter #(
         .WIDTH(3),
@@ -78,8 +78,8 @@ module bit_stuffer (
         .rst_n    (rst_n),
         .set_value(1'b1),
         .set      (bit_tick && stuffing_en && expect_stuff && (rx_can_sync == last_bit)),
-        .clear    (bit_tick)
-        // .q        (stuff_error_q)
+        .clear    (bit_tick),
+        .q        (stuff_error_q)
     );
 
     // TX-side outputs are simple combinational reads of the same tracked state

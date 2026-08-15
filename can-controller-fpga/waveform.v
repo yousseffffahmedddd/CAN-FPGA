@@ -99,6 +99,25 @@ module tb_spi_can_e2e;
         end
     endtask
 
+    // Send a single-byte SPI command such as RTS.
+    task spi_command(input [7:0] opcode);
+        integer i;
+        begin
+            @(posedge clk);
+            cs_n = 0;
+            for (i = 7; i >= 0; i = i - 1) begin
+                sck = 0;
+                mosi = opcode[i];
+                #(CLK_PERIOD);
+                sck = 1;
+                #(CLK_PERIOD);
+            end
+            sck = 0;
+            cs_n = 1;
+            #(CLK_PERIOD * 2);
+        end
+    endtask
+
     // Frame capture monitor logic (Gated by bit_tick to prevent oversampling)
     wire tb_bit_tick   = u_can_top.u_protocol_engine.bit_tick;
     wire current_tx_en = tx_en_wire;
@@ -169,14 +188,14 @@ module tb_spi_can_e2e;
         $display("[TEST] CAN Frame Config: ID=0x5a5, RTR=0, DLC=2, Data=0xa55a");
         $display("[SPI] Writing CAN Message over SPI interface...");
         
-        spi_write(8'h31, 8'h5a); // TXB0SIDH
+        spi_write(8'h31, 8'hB4); // TXB0SIDH for standard ID 0x5A5
         spi_write(8'h32, 8'ha0); // TXB0SIDL
         spi_write(8'h35, 8'h02); // TXB0DLC (DLC = 2)
         spi_write(8'h36, 8'ha5); // TXB0D0
         spi_write(8'h37, 8'h5a); // TXB0D1
 
         $display("[TX_FRAME] TX buffer loaded, now sending RTS command...");
-        spi_write(8'h00, 8'h01); // RTS command
+        spi_command(8'h81); // RTS TXB0 opcode
         $display("[TX_FRAME] RTS command sent");
 
         // Wait for transmission to complete

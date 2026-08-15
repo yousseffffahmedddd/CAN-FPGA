@@ -35,8 +35,12 @@ module tb_spi_can_e2e;
         sim_timeout <= sim_timeout + 1;
     end
 
-    // Transceiver Loopback (Loop back TX to RX when TX enabled, default recessive)
-    assign rx_pin = tx_en ? tx_can : 1'b1;
+    // CAN bus model: monitor our own driven bits and provide a single dominant
+    // ACK from a virtual second node during the transmitter ACK slot.
+    // A lone self-loopback node cannot ACK itself in CAN, so without this the
+    // correct result is an ACK error followed by automatic retransmission.
+    wire ack_drive_dbg;
+    assign rx_pin = tx_en ? tx_can : (ack_drive_dbg ? 1'b0 : 1'b1);
 
     // =========================================================================
     // 2. DUT Instantiation
@@ -71,6 +75,20 @@ module tb_spi_can_e2e;
     // failure (captured_bits filled with oversampled SOF, ID/DLC/Data
     // all read back as zero).
     wire proto_bit_tick_dbg = u_can_top.u_protocol_engine.bit_tick;
+    wire pe_tx_done_dbg     = u_can_top.pe_tx_done;
+    wire pe_msg_err_dbg     = u_can_top.pe_msg_err;
+    wire [4:0] f3_post_cnt_dbg = u_can_top.u_protocol_engine.f3.post_cnt;
+    wire f3_post_active_dbg = u_can_top.u_protocol_engine.f3.in_post_crc_seq;
+    wire [4:0] f3_crc_cnt_dbg = u_can_top.u_protocol_engine.f3.crc_cnt;
+    wire f3_ack_seen_dbg = u_can_top.u_protocol_engine.f3.ack_seen;
+    wire f3_node_is_tx_dbg = u_can_top.u_protocol_engine.f3.node_is_tx;
+    wire [6:0] f2_bit_cnt_dbg = u_can_top.u_protocol_engine.f2.bit_cnt;
+    wire [3:0] tx_dlc_dbg = u_can_top.txbuf_dlc;
+
+    // Exact ACK slot used by fsm_part3: post_cnt==1.
+    assign ack_drive_dbg = f3_post_active_dbg &&
+                           (f3_post_cnt_dbg == 5'd1) &&
+                           !tx_en;
 
     // =========================================================================
     // 3. SPI Bit-Bang Tasks & OPCODES
@@ -168,8 +186,9 @@ module tb_spi_can_e2e;
             #200;
             spi_write_byte(CMD_LOAD_TX0);
             spi_write_byte({id[10:3]});
-spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:0] at [7:5], RTR at [4]           
- spi_write_byte({4'b0000, dlc});
+            spi_write_byte({id[2:0], 5'b00000});
+            // TXB0DLC bit 6 carries RTR; bits [3:0] carry DLC.
+            spi_write_byte({1'b0, rtr, 2'b00, dlc});
 
             for (b = 0; b < dlc; b = b + 1) begin
                 spi_write_byte(data[63 - (b*8) -: 8]);
@@ -197,31 +216,42 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
     // =========================================================================
     // 4. CAN 2.0B CRC-15 Reference Function
     // =========================================================================
-    function [14:0] calc_can_crc15(
-        input [10:0] id,
-        input        rtr,
-        input [3:0]  dlc,
-        input [63:0] data
-    );
+    function [14:0] crc15_step_ref;
+        input [14:0] current;
+        input        bit_in;
+        reg          feedback;
+        begin
+            feedback = current[14] ^ bit_in;
+            crc15_step_ref = {current[13:0], 1'b0};
+            if (feedback)
+                crc15_step_ref = crc15_step_ref ^ 15'h4599;
+        end
+    endfunction
+
+    function [14:0] calc_can_crc15;
+        input [10:0] id;
+        input        rtr;
+        input [3:0]  dlc;
+        input [63:0] data;
         reg [14:0] crc;
-        reg        crc_nxt;
-        integer    i, j;
-        reg [127:0] bit_stream;
-        integer    total_bits;
+        integer i;
         begin
             crc = 15'h0000;
 
-            // Construct bitstream: SOF(0) + ID[10:0] + RTR + IDE(0) + r0(0) + DLC[3:0] + Data
-            bit_stream = {id[10:0], rtr, 1'b0, 1'b0, dlc[3:0], data};
-            total_bits = 11 + 1 + 1 + 1 + 4 + (dlc * 8);
+            // CAN CRC sequence is SOF through the end of the Data field,
+            // using the DESTUFFED logical bits and MSB-first field ordering.
+            crc = crc15_step_ref(crc, 1'b0); // SOF
+            for (i = 10; i >= 0; i = i - 1)
+                crc = crc15_step_ref(crc, id[i]);
+            crc = crc15_step_ref(crc, rtr);
+            crc = crc15_step_ref(crc, 1'b0); // IDE
+            crc = crc15_step_ref(crc, 1'b0); // r0
+            for (i = 3; i >= 0; i = i - 1)
+                crc = crc15_step_ref(crc, dlc[i]);
+            for (i = 0; i < (dlc * 8); i = i + 1)
+                crc = crc15_step_ref(crc, data[63-i]);
 
-            for (i = 127; i > (128 - total_bits); i = i - 1) begin
-                crc_nxt = bit_stream[i] ^ crc[14];
-                crc = crc << 1;
-                if (crc_nxt)
-                    crc = crc ^ 15'h4599; // CAN 2.0B Polynomial
-            end
-            calc_can_crc15 = crc & 15'h7FFF;
+            calc_can_crc15 = crc;
         end
     endfunction
 
@@ -244,26 +274,28 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
         tx_en_end_time = 0;
     end
 
-    // Capture CAN bitstream synchronously, ONE SAMPLE PER CAN BIT (gated by
-    // proto_bit_tick_dbg), while the transmitter is active. Previously this
-    // sampled every system clock edge, which is wrong: fsm_part2 only
-    // updates tx_can once per bit_tick, so sampling on every system clock
-    // just captured dozens/hundreds of repeats of whatever bit was currently
-    // being held (mostly the SOF dominant bit), corrupting every downstream
-    // field decode.
+    // Capture exactly one sample per CAN bit.  tx_en becomes active before
+    // the first bit_tick, so do not sample merely because tx_en rose; doing
+    // that captured SOF twice and shifted every decoded field by one bit.
     always @(posedge clk) begin
         tx_en_prev <= tx_en;
 
-        // Detect TX start
+        // Detect TX start and arm capture.  If a bit_tick happens on this same
+        // clock edge, capture that bit once at index 0.
         if (tx_en && !tx_en_prev) begin
-            capturing <= 1'b1;
-            bit_idx <= 0;
+            capturing       <= 1'b1;
+            captured_bits   <= 256'd0;
+            bit_idx         <= 0;
             tx_en_start_time <= sim_timeout;
+
+            if (proto_bit_tick_dbg) begin
+                captured_bits[255] <= tx_can;
+                bit_idx <= 1;
+            end
+
             $display("[DEBUG] TX Started at time %0t (cycle %0d)", $time, sim_timeout);
         end
-
-        // Capture exactly once per real CAN bit, not every system clock
-        if (tx_en && capturing && proto_bit_tick_dbg) begin
+        else if (tx_en && capturing && proto_bit_tick_dbg) begin
             captured_bits[255 - bit_idx] <= tx_can;
             bit_idx <= bit_idx + 1;
         end
@@ -276,6 +308,53 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
                      $time, sim_timeout, bit_idx);
         end
     end
+
+    // Destuffed logical capture used for field decoding.
+    reg [255:0] logical_bits;
+    integer logical_count;
+    integer stuff_decode_error;
+
+    task destuff_captured_frame;
+        integer raw_i;
+        integer run_count;
+        reg last_bit;
+        reg raw_bit;
+        reg expect_stuff;
+        begin
+            logical_bits      = 256'd0;
+            logical_count     = 0;
+            stuff_decode_error = 0;
+            run_count         = 0;
+            last_bit          = 1'b1;
+            expect_stuff      = 1'b0;
+
+            for (raw_i = 0; raw_i < bit_idx; raw_i = raw_i + 1) begin
+                raw_bit = captured_bits[255-raw_i];
+
+                if (expect_stuff) begin
+                    if (raw_bit === last_bit)
+                        stuff_decode_error = 1;
+                    // Stuff bit is not copied into the logical frame, but it
+                    // becomes the new physical run polarity.
+                    last_bit     = raw_bit;
+                    run_count    = 1;
+                    expect_stuff = 1'b0;
+                end else begin
+                    logical_bits[255-logical_count] = raw_bit;
+                    logical_count = logical_count + 1;
+
+                    if ((run_count == 0) || (raw_bit !== last_bit)) begin
+                        last_bit  = raw_bit;
+                        run_count = 1;
+                    end else begin
+                        run_count = run_count + 1;
+                        if (run_count == 5)
+                            expect_stuff = 1'b1;
+                    end
+                end
+            end
+        end
+    endtask
 
     // =========================================================================
     // 6. Test Environment Execution & Self-Checking Asserts
@@ -295,34 +374,34 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
 
     // Temporary variables for tasks
     reg [7:0] status_byte;
+    integer wait_cycles;
 
     initial begin
         // Reset Setup
+        // tx_buffer/rx_buffer use synchronous active-high reset.  Keep the
+        // external reset asserted across several clk rising edges, then release
+        // it on a falling edge so there is no reset/clock scheduling race.
         sck  = 1'b0;
         si   = 1'b0;
         cs_n = 1'b1;
         rst_n = 1'b0;
         sim_timeout = 0;
-        #500;
+        repeat (4) @(posedge clk);
+        @(negedge clk);
         rst_n = 1'b1;
-        #5000;
+        repeat (4) @(posedge clk);
 
         $display("=================================================");
         $display("   STARTING END-TO-END SPI -> CAN BUS TESTBENCH  ");
         $display("=================================================");
 
         // =====================================================
-        // INITIALIZATION: Configure Bit Timing & Enter Normal Mode
+        // INITIALIZATION: project is hardcoded to Normal mode and fixed timing
         // =====================================================
-        $display("\n[INIT] Initializing CAN Controller Bit Timing...");
-        spi_write_register(8'h2A, 8'h03); // CNF1: SJW=1, BRP=3
-        spi_write_register(8'h29, 8'hB8); // CNF2: BTLMODE=1, PHSEG1=3, PRSEG=8
-        spi_write_register(8'h28, 8'h05); // CNF3: PHSEG2=5
-
-        $display("[INIT] Writing CANCTRL = 0x00 to enter Normal Mode");
+        $display("\n[INIT] Controller uses SOW-hardcoded bit timing and Normal mode");
         spi_write_register(CANCTRL, 8'h00);
-        #10000;  // Wait for mode transition
-        $display("[INIT] Waiting complete, proceeding to transmission test\n");
+        #10000;
+        $display("[INIT] Initialization complete, proceeding to transmission test\n");
 
         // =====================================================
         // TEST: Transmit CAN Frame
@@ -341,8 +420,27 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
         $display("[SPI] Writing CAN Message over SPI interface...");
         spi_send_can_frame(exp_id, exp_rtr, exp_dlc, exp_data);
 
-        // DEBUG: Monitor internal signals
+        // Fail immediately if the physical TX buffer did not receive a clean
+        // message.  This catches reset/load integration bugs before the protocol
+        // FSM can enter DATA with an unknown DLC and hang indefinitely.
         #1000;
+        if ((u_can_top.txbuf_ready !== 1'b1) ||
+            (u_can_top.txbuf_dlc   !== exp_dlc) ||
+            (^u_can_top.txbuf_id   === 1'bx) ||
+            (^u_can_top.txbuf_data === 1'bx)) begin
+            $display("[ERROR] TX buffer invalid before protocol run: ready=%b id=%03X dlc=%b data=%016X",
+                     u_can_top.txbuf_ready, u_can_top.txbuf_id,
+                     u_can_top.txbuf_dlc, u_can_top.txbuf_data);
+            fail_count = fail_count + 1;
+            $finish;
+        end
+        else begin
+            $display("[OK] TX buffer loaded cleanly: ready=%b ID=0x%03X DLC=%0d Data=0x%016X",
+                     u_can_top.txbuf_ready, u_can_top.txbuf_id,
+                     u_can_top.txbuf_dlc, u_can_top.txbuf_data);
+        end
+
+        // DEBUG: Monitor internal signals
         $display("[DEBUG] After SPI Write:");
         $display("  tx_en = %b", tx_en);
         $display("  so = %b", so);
@@ -355,27 +453,41 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
         $display("  TX Request Flag = %b", ctrl_txreq_dbg);
         $display("  Protocol Engine State = %b", proto_state_dbg);
 
-        // Step 2: Wait for Transmission Start (with timeout)
+        // Step 2: Wait for Transmission Start with a real bounded timeout.
         $display("[WAIT] Waiting for TX to start (max %0d cycles)...", TIMEOUT_CYCLES);
-        sim_timeout = 0;
-        wait(tx_en == 1'b1);
-        if (sim_timeout > TIMEOUT_CYCLES) begin
-            $display("[ERROR] TIMEOUT: tx_en never asserted after %0d cycles", sim_timeout);
+        wait_cycles = 0;
+        while ((tx_en !== 1'b1) && (wait_cycles < TIMEOUT_CYCLES)) begin
+            @(posedge clk);
+            wait_cycles = wait_cycles + 1;
+        end
+        if (tx_en !== 1'b1) begin
+            $display("[ERROR] TIMEOUT: tx_en never asserted after %0d cycles", wait_cycles);
             fail_count = fail_count + 1;
             $finish;
         end
-        $display("[OK] TX Started at cycle %0d", sim_timeout);
+        $display("[OK] TX Started after %0d wait cycles", wait_cycles);
 
-        // Step 3: Wait for Transmission End (with timeout)
-        $display("[WAIT] Waiting for TX to complete...");
-        sim_timeout = 0;
-        wait(tx_en == 1'b0);
-        if (sim_timeout > TIMEOUT_CYCLES) begin
-            $display("[ERROR] TIMEOUT: tx_en never deasserted after %0d cycles", sim_timeout);
+        // Step 3: Wait for the real protocol completion pulse. tx_en naturally
+        // releases during ACK, so tx_en==0 is not itself proof of tx_done.
+        $display("[WAIT] Waiting for TX completion/ACK...");
+        wait_cycles = 0;
+        while ((pe_tx_done_dbg !== 1'b1) && (wait_cycles < TIMEOUT_CYCLES)) begin
+            @(posedge clk);
+            wait_cycles = wait_cycles + 1;
+        end
+        if (pe_tx_done_dbg !== 1'b1) begin
+            $display("[ERROR] TIMEOUT: tx_done never asserted after %0d cycles", wait_cycles);
+            $display("        state=%b bit_tick=%b tx_en=%b txreq=%b msg_err=%b post=%b/%0d",
+                     proto_state_dbg, proto_bit_tick_dbg, tx_en, ctrl_txreq_dbg,
+                     pe_msg_err_dbg, f3_post_active_dbg, f3_post_cnt_dbg);
+            $display("        f2_bit_cnt=%0d dlc=%0d f3_crc_cnt=%0d ack_seen=%b node_tx=%b",
+                     f2_bit_cnt_dbg, tx_dlc_dbg, f3_crc_cnt_dbg,
+                     f3_ack_seen_dbg, f3_node_is_tx_dbg);
             fail_count = fail_count + 1;
             $finish;
         end
-        $display("[OK] TX Ended at cycle %0d, captured %0d bits", sim_timeout, bit_idx);
+        $display("[OK] TX completed after %0d wait cycles, captured %0d physical bits",
+                 wait_cycles, bit_idx);
 
         // Wait for capture to finalize
         #2000;
@@ -387,12 +499,18 @@ spi_write_byte({id[2:0], rtr, 4'b0000}); // Matches the reg_bank decoding: ID[2:
             $finish;
         end
 
-        // Step 5: Parse Bitstream Fields from Captured Bus
-        cap_id   = captured_bits[254 -: 11];
-        cap_rtr  = captured_bits[243];
-        cap_dlc  = captured_bits[240 -: 4];
-        cap_data = captured_bits[236 -: 16] << 48;
-        cap_crc  = captured_bits[(236 - (exp_dlc * 8)) -: 15];
+        // Step 5: Remove CAN stuff bits, then parse the logical frame.
+        destuff_captured_frame;
+        if (stuff_decode_error != 0) begin
+            $display("[ERROR] Invalid CAN stuff sequence in captured frame");
+            fail_count = fail_count + 1;
+        end
+
+        cap_id   = logical_bits[254 -: 11];
+        cap_rtr  = logical_bits[243];
+        cap_dlc  = logical_bits[240 -: 4];
+        cap_data = logical_bits[236 -: 16] << 48;
+        cap_crc  = logical_bits[(236 - (exp_dlc * 8)) -: 15];
 
         $display("[DEBUG] Captured Frame - ID: 0x%03X, RTR: %b, DLC: 0x%01X, Data: 0x%016X",
                  cap_id, cap_rtr, cap_dlc, cap_data);

@@ -13,9 +13,8 @@ module tb_spi_if;
     wire [7:0] addr;
     wire [7:0] wdata;
     reg  [7:0] rdata;
-    wire we, reset_pulse, rxbuf_done, bitmod_we, rxbuf_sel;
-    wire [2:0] rts_pulse;
-    wire [7:0] bitmod_mask;
+    wire we, reset_pulse, rxbuf_done;
+    wire rts_pulse;
     reg [7:0] mem [0:255];
 
     integer i0;
@@ -27,9 +26,7 @@ module tb_spi_if;
     spi_if dut (
         .clk(clk), .rst_n(rst_n), .sck(sck), .si(si), .so(so), .cs_n(cs_n),
         .addr(addr), .wdata(wdata), .rdata(rdata), .we(we),
-        .reset_pulse(reset_pulse), .rts_pulse(rts_pulse), .rxbuf_done(rxbuf_done), 
-        .rxbuf_sel(rxbuf_sel),
-        .bitmod_mask(bitmod_mask), .bitmod_we(bitmod_we),
+        .reset_pulse(reset_pulse), .rts_pulse(rts_pulse), .rxbuf_done(rxbuf_done),
         .status_byte(status_byte), .rxstatus_byte(rxstatus_byte)
     );
 
@@ -434,6 +431,7 @@ module tb_spi_if;
         send_byte(8'h40);
         send_byte(8'h24);
         send_byte(8'h60);
+        send_byte(8'h08);
 
         #20;
         cs_n = 1;
@@ -442,8 +440,11 @@ module tb_spi_if;
 
         check(
             mem[8'h31] === 8'h24 &&
-            mem[8'h32] === 8'h60,
-            "LOAD TX BUFFER 0x40 writes TXB0SIDH/SIDL"
+            mem[8'h32] === 8'h60 &&
+            mem[8'h33] === 8'h00 &&
+            mem[8'h34] === 8'h00 &&
+            mem[8'h35] === 8'h08,
+            "LOAD TX BUFFER 0x40 skips omitted EID bytes and reaches DLC"
         );
 
 
@@ -889,7 +890,7 @@ module tb_spi_if;
         #40;
         if (errors == 0) $display(">>> ALL TESTS PASSED <<<");
         else $display(">>> %0d TEST(S) FAILED <<<", errors);
-        // $finish;
+        $finish;
     end
 
 endmodule

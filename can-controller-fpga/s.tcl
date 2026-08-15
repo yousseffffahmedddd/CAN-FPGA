@@ -48,6 +48,12 @@
 # # ModelSim / QuestaSim Complete Run & Waveform TCL Script
 # # =====================================================================
 
+# Always run relative paths from the directory that contains this script.
+# This lets the same TCL work whether it is launched from CAN-FPGA or from
+# can-controller-fpga.
+set SCRIPT_DIR [file dirname [file normalize [info script]]]
+cd $SCRIPT_DIR
+
 # 1. Reset work library
 if {[file exists work]} {
     vdel -lib work -all
@@ -64,9 +70,12 @@ vlog -work work "rtl/common/sat_counter.v"
 vlog -work work "rtl/common/shift_reg.v"
 vlog -work work "rtl/common/sync_2ff_edge.v"
 
-# 3. Compile Control, Registers, and SPI Interface
-vlog -work work "rtl/ctrl_int_regs/irq_ctrl.v"
-vlog -work work "rtl/ctrl_int_regs/mode_fsm.v"
+# 3. Compile Control Logic, Registers, and SPI Interface
+# control_logic is now instantiated by can_top and must be present in work.
+vlog -work work "rtl/control_logic/control_logic.v"
+# irq_ctrl.v and mode_fsm.v are legacy optional helpers and are not instantiated
+# by the reduced Normal-mode top level, so the main E2E flow does not compile
+# them as active architecture. Their source files are left untouched.
 vlog -work work "rtl/ctrl_int_regs/reg_bank.v"
 vlog -work work "rtl/spi_if/spi_if.v"
 
@@ -91,30 +100,10 @@ vlog -work work "tb/tb_endToendTest.v"
 # 7. Start Simulation (with acceleration)
 vsim -voptargs="+acc" work.tb_spi_can_e2e
 
-# 8. Set Up Waveform Window
-view wave
-delete wave *
-
-add wave -noupdate -divider {Testbench & SPI Bus}
-add wave -noupdate -color Yellow /tb_spi_can_e2e/clk
-add wave -noupdate -color Yellow /tb_spi_can_e2e/rst_n
-add wave -noupdate /tb_spi_can_e2e/sck
-add wave -noupdate /tb_spi_can_e2e/cs_n
-add wave -noupdate /tb_spi_can_e2e/si
-add wave -noupdate /tb_spi_can_e2e/so
-
-add wave -noupdate -divider {CAN Bus & Top Wrapper}
-add wave -noupdate -color Orange /tb_spi_can_e2e/rx_pin
-add wave -noupdate -color Orange /tb_spi_can_e2e/tx_can
-add wave -noupdate /tb_spi_can_e2e/tx_en
-add wave -noupdate /tb_spi_can_e2e/int_n
-
-add wave -noupdate -divider {Protocol FSM & Verification}
-add wave -noupdate -radix hexadecimal /tb_spi_can_e2e/u_can_top/u_protocol_engine/current_state
-add wave -noupdate /tb_spi_can_e2e/u_can_top/u_protocol_engine/bit_tick
-add wave -noupdate -radix unsigned /tb_spi_can_e2e/bit_idx
-add wave -noupdate -radix hexadecimal /tb_spi_can_e2e/captured_bits
+# 8. Console-friendly signal logging
+# Keep the run usable with `vsim -c`. Questa writes the simulation database
+# without requiring a GUI waveform window.
+log -r /*
 
 # 9. Run Simulation
 run -all
-wave zoom full

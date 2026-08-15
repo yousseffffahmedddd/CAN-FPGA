@@ -63,6 +63,10 @@ module fsm_part3 (
 
     // FSM for this module: idle/accumulating -> crc_rx -> post_crc sequence
     reg prev_state_is_crc;
+    // State tag aligned with bit_stuffer's one-clock-delayed data_bit_tick.
+    // It records whether the physical bit sampled on the preceding bit_tick
+    // belonged to the CRC field.
+    reg sampled_bit_was_crc;
     reg node_is_tx; // latched at SOF entry
 
     // CRC shifting for TX
@@ -74,6 +78,8 @@ module fsm_part3 (
     // Post-CRC subsequence counter (driven by bit_tick)
     reg [4:0] post_cnt;
     reg in_post_crc_seq;
+    reg ack_seen;
+    reg crc_latch_d;
 
     // Recessive-run counter (for recessive11 pulse)
     reg [4:0] recessive_run;
@@ -114,11 +120,14 @@ module fsm_part3 (
             rx_success_pulse <= 1'b0;
             recessive11_pulse<= 1'b0;
             prev_state_is_crc<= 1'b0;
+            sampled_bit_was_crc <= 1'b0;
             node_is_tx       <= 1'b0;
             crc_shift_reg    <= 15'h0;
             crc_cnt          <= 5'd0;
             post_cnt         <= 5'd0;
             in_post_crc_seq  <= 1'b0;
+            ack_seen          <= 1'b0;
+            crc_latch_d        <= 1'b0;
             recessive_run    <= 5'd0;
         end
         else begin
@@ -147,42 +156,69 @@ module fsm_part3 (
                 crc_init <= 1'b1;
             end
 
-            // While frame fields before CRC are being delivered, step CRC on destuffed bits
-            if (data_bit_tick && !is_state_crc) begin
-                // Pulse CRC step for accumulation (crc_gen_check will only act when crc_field_rx==0)
+            // bit_stuffer registers data_bit_tick/data_bit, so those signals
+            // describe the physical bit sampled on the PREVIOUS bit_tick.
+            // Remember the state that owned that physical bit so the DATA->CRC
+            // boundary cannot misclassify the final DATA bit as CRC bit 0.
+            if (bit_tick)
+                sampled_bit_was_crc <= is_state_crc;
+
+            // Accumulate all destuffed logical bits that were sampled before the
+            // CRC field.  In particular, when current_state has just become CRC,
+            // sampled_bit_was_crc is still 0 for the delayed final DATA bit.
+            if (data_bit_tick && !sampled_bit_was_crc) begin
                 crc_bit_strobe <= 1'b1;
+
+                // The delayed final pre-CRC bit is the correct moment to latch.
+                // crc_gen_check sees crc_bit_strobe and crc_latch together on
+                // the following clock, so crc_accum_next includes this final bit.
+                if (is_state_crc) begin
+                    crc_latch       <= 1'b1;
+                    crc_field_rx    <= 1'b0;
+                    crc_cnt         <= 5'd0;
+                    in_post_crc_seq <= 1'b0;
+                    tx_en_out       <= node_is_tx;
+                    if (!node_is_tx)
+                        tx_can_out <= `CAN_RECESSIVE;
+                end
             end
 
-            // On entry into CRC state we must latch the accumulated CRC and
-            // prepare to either transmit it (if we were the transmitter) or
-            // receive/compare it (if we were a receiver).
+            // Entry into CRC only prepares the handoff.  Do NOT latch here:
+            // the bit_stuffer still owes us the delayed final DATA bit.
             if (!prev_state_is_crc && is_state_crc) begin
-                // latch CRC value for TX
-                crc_latch <= 1'b1;
-                crc_field_rx <= 1'b1; // subsequent bit_strobe pulses are treated as CRC RX bits
-                crc_cnt <= 5'd0;
+                crc_cnt         <= 5'd0;
                 in_post_crc_seq <= 1'b0;
-                // if we are transmitter, preload shift register with crc_out_w
-                // crc_out_w is produced combinationally by crc_gen_check after crc_latch
-                crc_shift_reg <= crc_out_w;
-                // while CRC field is being transmitted, drive bus if we were transmitter
-                tx_en_out <= node_is_tx;
-                if (node_is_tx)
-                    tx_can_out <= crc_out_w[14];
-                else
+                crc_field_rx    <= 1'b0;
+                tx_en_out       <= node_is_tx;
+                if (!node_is_tx)
                     tx_can_out <= `CAN_RECESSIVE;
             end
 
-            // CRC bit processing: operate on destuffed data_bit_tick (CRC field bits are part of frame data)
-            if (is_state_crc && data_bit_tick) begin
-                // During CRC field, we pulse crc_bit_strobe and count bits
-                crc_bit_strobe <= 1'b1;
-                // Ensure crc_field_rx is asserted so crc_gen_check captures rx CRC bits
+            // crc_out updates one clock after crc_latch is observed by the CRC
+            // engine.  crc_latch_d therefore gives crc_out time to settle before
+            // we preload the 15-bit TX shifter.  At the same point it is safe to
+            // switch the checker into CRC-field capture mode.
+            crc_latch_d <= crc_latch;
+            if (crc_latch_d) begin
                 crc_field_rx <= 1'b1;
+                if (node_is_tx) begin
+                    crc_shift_reg <= crc_out_w;
+                    tx_can_out    <= crc_out_w[14];
+                end
+            end
+
+            // Process only bits that were physically sampled while the field FSM
+            // was in CRC.  This also naturally accepts the delayed 15th CRC bit
+            // after fsm_part2 has moved on to ACK.
+            if (data_bit_tick && sampled_bit_was_crc) begin
+                crc_bit_strobe <= 1'b1;
+                crc_field_rx   <= 1'b1;
 
                 if (node_is_tx) begin
-                    // If transmitting, shift out MSB and present next bit
-                    tx_can_out <= crc_shift_reg[14];
+                    // The current MSB was already present on the bus for this
+                    // sampled CRC bit.  Shift now and drive the NEXT CRC bit
+                    // for the following bit period.
+                    tx_can_out    <= crc_shift_reg[13];
                     crc_shift_reg <= {crc_shift_reg[13:0], 1'b0};
                 end
 
@@ -193,6 +229,7 @@ module fsm_part3 (
                     // move into post-CRC sequence (CRC_DELIM .. INTER)
                     in_post_crc_seq <= 1'b1;
                     post_cnt <= 5'd0;
+                    ack_seen <= 1'b0;
                     // release bus for ACK slot (transmitter must stop driving)
                     tx_en_out <= 1'b0;
                     // stop CRC RX field flag (we will not feed crc bits any more)
@@ -202,6 +239,22 @@ module fsm_part3 (
                 else begin
                     crc_cnt <= crc_cnt + 5'd1;
                 end
+            end
+
+            // Never leave the post-data TX override latched high if the core
+            // FSM has already left CRC before the internal CRC counter finishes.
+            if (prev_state_is_crc && !is_state_crc && !in_post_crc_seq) begin
+                tx_en_out    <= 1'b0;
+                crc_field_rx <= 1'b0;
+            end
+
+            // Latch a dominant ACK anywhere during the ACK-slot window.
+            // rx_can_sync is itself sampled/pipelined, so using a level latch
+            // here is safer than relying on one exact system-clock edge.
+            if (in_post_crc_seq && node_is_tx &&
+                (post_cnt == 5'd1) &&
+                (rx_can_sync == `CAN_DOMINANT)) begin
+                ack_seen <= 1'b1;
             end
 
             // Post-CRC subsequence driven by `bit_tick` (not destuffed-only)
@@ -215,25 +268,33 @@ module fsm_part3 (
                 // 3..9 : EOF (7 bits)
                 // 10..12 : INTERMISSION (3 bits)
 
-                // ACK slot handling (post_cnt == 1)
+                // ACK timing is aligned to the registered rx_can_sync sample.
+                // post_cnt 0 completes the CRC delimiter and prepares the ACK
+                // slot; post_cnt 1 is the physical ACK slot; at post_cnt 2 the
+                // registered sample from that ACK slot is available to inspect.
+                if (post_cnt == 5'd0) begin
+                    if (!node_is_tx && !crc_error_w) begin
+                        tx_en_out  <= 1'b1;
+                        tx_can_out <= `CAN_DOMINANT;
+                    end
+                end
+
                 if (post_cnt == 5'd1) begin
-                    // If we were transmitter, check for ACK (someone pulling dominant)
-                    if (node_is_tx) begin
-                        if (rx_can_sync == `CAN_RECESSIVE) begin
-                            ack_err_pulse <= 1'b1; // no ACK observed
-                        end
-                        else begin
-                            tx_success_pulse <= 1'b1; // ACK observed
-                        end
+                    if (!node_is_tx) begin
+                        // Release immediately after the ACK slot so the ACK
+                        // delimiter remains recessive.
+                        tx_en_out  <= 1'b0;
+                        tx_can_out <= `CAN_RECESSIVE;
                     end
-                    else begin
-                        // we are receiver: we should ACK if CRC matched (no crc_err)
-                        if (!crc_error_w) begin
-                            // drive dominant during ACK slot to acknowledge
-                            tx_en_out <= 1'b1;
-                            tx_can_out <= `CAN_DOMINANT;
-                        end
-                    end
+                end
+
+                if (post_cnt == 5'd2 && node_is_tx) begin
+                    // Accept either the latched ACK-slot observation or the
+                    // currently visible synchronized dominant level.
+                    if (ack_seen || (rx_can_sync == `CAN_DOMINANT))
+                        tx_success_pulse <= 1'b1;
+                    else
+                        ack_err_pulse <= 1'b1;
                 end
 
                 // End of Intermission -> conclude frame and optionally assert rx_success
