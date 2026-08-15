@@ -129,24 +129,32 @@ module protocol_engine (
         .stuff_tx_bit  (stuff_tx_bit)
     );
 
-    // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
     // 3) Frame Serializer / Deserializer Adapter Logic
     // -------------------------------------------------------------------------
     reg [107:0] tx_frame_shift;
     reg [107:0] rx_frame_shift;
     reg [6:0]   bit_cnt;
 
-    // Construct simple standard frame shift register (ID + RTR + IDE + DLC + DATA)
+    // // Construct simple standard frame shift register (ID + RTR + IDE + DLC + DATA)
+    // always @(posedge clk or negedge rst_n) begin
+    //     if (!rst_n) begin
+    //         tx_frame_shift <= 108'd0;
+    //     end else if (txb_txreq && (current_state_w == 3'd0)) begin 
+    //         // Pack fields: 11-bit ID + 1-bit RTR + 1-bit IDE (0) + 4-bit DLC + 64-bit Data
+    //         tx_frame_shift <= {txb_id, txb_rtr, 1'b0, txb_dlc, txb_data};
+    //     end else if (bit_tick && piso_req) begin
+    //         tx_frame_shift <= {tx_frame_shift[106:0], 1'b1}; // Shift left synchronized with bit_tick
+    //     end
+    // end
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             tx_frame_shift <= 108'd0;
-            bit_cnt        <= 7'd0;
-        end else if (txb_txreq && (current_state_w == `CAN_STATE_SOF)) begin
-            tx_frame_shift <= {txb_id, txb_rtr, 1'b0, txb_dlc, txb_data};
-            bit_cnt        <= 7'd0;
-        end else if (piso_req) begin
-            tx_frame_shift <= {tx_frame_shift[106:0], 1'b0};
-            bit_cnt        <= bit_cnt + 1'b1;
+        end else if (txb_txreq && (current_state_w == 3'd0)) begin 
+            // Explicitly map: 11-bit ID, RTR, IDE (0), r0 (0), DLC, and Data payload
+            tx_frame_shift <= {txb_id, txb_rtr, 1'b0, 1'b0, txb_dlc, txb_data};
+        end else if (bit_tick && piso_req) begin
+            tx_frame_shift <= {tx_frame_shift[106:0], 1'b1}; 
         end
     end
 
@@ -169,12 +177,17 @@ module protocol_engine (
 
     // -------------------------------------------------------------------------
     // 4) Core Field State Machine (fsm_part2)
+    // // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+    // 4) Core Field State Machine (fsm_part2)
     // -------------------------------------------------------------------------
     fsm_part2 f2 (
         .clk           (clk),
         .rst_n         (rst_n),
         .bit_tick      (bit_tick),
         .rx_can_sync   (rx_can_sync),
+        .txb_txreq     (txb_txreq),          // <--- Connect transmission request
+        .dlc           (txb_dlc),            // <--- Connect DLC for frame length handling
         .tx_can        (tx_can_fsm2),
         .tx_en         (tx_en_fsm2),
         .piso_data_in  (piso_data_in),
@@ -187,6 +200,28 @@ module protocol_engine (
         .latched_dlc   (latched_dlc_w),
         .current_state (current_state_w)
     );
+    // -------------------------------------------------------------------------
+    // 4) Core Field State Machine (fsm_part2)
+    // -------------------------------------------------------------------------
+    // fsm_part2 f2 (
+    //     .clk           (clk),
+    //     .rst_n         (rst_n),
+    //     .bit_tick      (bit_tick),
+    //     .rx_can_sync   (rx_can_sync),
+    //     .txb_txreq     (txb_txreq),           // <--- Added transmission request wire
+    //     .dlc           (txb_dlc),             // <--- Passed for 44+8n frame length handling
+    //     .tx_can        (tx_can_fsm2),
+    //     .tx_en         (tx_en_fsm2),
+    //     .piso_data_in  (piso_data_in),
+    //     .piso_valid    (piso_valid),
+    //     .piso_req      (piso_req),
+    //     .sipo_data_out (sipo_data_out),
+    //     .sipo_valid    (sipo_valid),
+    //     .bit_error     (bit_error_w),
+    //     .arb_lost      (arb_lost_w),
+    //     .latched_dlc   (latched_dlc_w),
+    //     .current_state (current_state_w)
+    // );
 
     assign current_state = current_state_w;
     assign latched_dlc   = latched_dlc_w;

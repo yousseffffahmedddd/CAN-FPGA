@@ -78,8 +78,8 @@ module bit_stuffer (
         .rst_n    (rst_n),
         .set_value(1'b1),
         .set      (bit_tick && stuffing_en && expect_stuff && (rx_can_sync == last_bit)),
-        .clear    (bit_tick),
-        .q        (stuff_error_q)
+        .clear    (bit_tick)
+        // .q        (stuff_error_q)
     );
 
     // TX-side outputs are simple combinational reads of the same tracked state
