@@ -71,7 +71,7 @@ module reg_bank (
     // -------------------------------------------------------------------------
     localparam ADDR_CANCTRL  = 8'h0F;
     localparam ADDR_CANSTAT  = 8'h0E;
-    localparam ADDR_CANINTF  = 8'h2E;
+    localparam ADDR_CANINTF  = 8'h2C;
     localparam ADDR_CANINTE  = 8'h2B;
     localparam ADDR_TEC      = 8'h1C;
     localparam ADDR_REC      = 8'h1D;
