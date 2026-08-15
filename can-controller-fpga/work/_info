@@ -1,0 +1,486 @@
+m255
+K4
+z2
+Z0 !s99 nomlopt
+R0
+R0
+!s11f vlog 2021.1 2021.01, Jan 19 2021
+13
+!s112 1.1
+!i10d 8192
+!i10e 25
+!i10f 100
+cModel Technology
+Z1 dC:/Users/Lenovo/Desktop/EDA/project/can-controller-fpga
+T_opt
+!s110 1786761405
+VLL8J0_]9AbaJC@i6dn<[^0
+04 14 4 work tb_spi_can_e2e fast 0
+=1-c035325dc12f-6a7fd0bc-ce-47e4
+!s124 OEM100
+o-quiet -auto_acc_if_foreign -work work +acc
+Z2 tCvgOpt 0
+n@_opt
+OL;O;2021.1;73
+vaccept_filter
+Z3 !s110 1786761394
+!i10b 1
+!s100 1:bcGF0eHB:KV6InGH^1k0
+Ign=Lk[?1caIajiO^Ob^m;2
+R1
+Z4 w1786692909
+8rtl/buffers_filters/accept_filter.v
+Frtl/buffers_filters/accept_filter.v
+!i122 10
+L0 30 33
+Z5 VDg1SIo80bB@j0V0VzS_@n1
+Z6 OL;L;2021.1;73
+r1
+!s85 0
+31
+Z7 !s108 1786761394.000000
+!s107 rtl/buffers_filters/accept_filter.v|
+!s90 -reportprogress|300|-work|work|rtl/buffers_filters/accept_filter.v|
+!i113 0
+Z8 o-work work -L mtiAvm -L mtiRnm -L mtiOvm -L mtiUvm -L mtiUPF -L infact
+R2
+vbit_clk_gen
+R3
+!i10b 1
+!s100 z^bK30oJXicn?DRP_OC_R0
+In7CBTFTObASZMai`7^B]W1
+R1
+Z9 w1786752030
+Z10 8rtl/protocol_engine/fsm_part1.v
+Z11 Frtl/protocol_engine/fsm_part1.v
+!i122 15
+L0 143 50
+R5
+R6
+r1
+!s85 0
+31
+R7
+Z12 !s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/fsm_part1.v|
+Z13 !s90 -reportprogress|300|-work|work|rtl/protocol_engine/fsm_part1.v|
+!i113 0
+R8
+R2
+vbit_stuffer
+R3
+!i10b 1
+!s100 C`7C9mf09CC26[=5]e`Hb2
+I@D[hN>LdQPAUcAZiIFMWA2
+R1
+w1786755158
+8rtl/protocol_engine/bit_stuffer.v
+Frtl/protocol_engine/bit_stuffer.v
+!i122 12
+L0 35 118
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/bit_stuffer.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/bit_stuffer.v|
+!i113 0
+R8
+R2
+vcan_top
+R3
+!i10b 1
+!s100 E2D:d2;nEDT[@l>[okeB[3
+IVB8c`I9?U@5YHID]M?lUJ2
+R1
+w1786750205
+8rtl/top/can_top.v
+Frtl/top/can_top.v
+!i122 19
+L0 11 236
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/top/../common/can_defs.vh|rtl/top/can_top.v|
+!s90 -reportprogress|300|-work|work|rtl/top/can_top.v|
+!i113 0
+R8
+R2
+vcrc_gen_check
+R3
+!i10b 1
+!s100 nl[QhLGebSdFX:WmV0l>U2
+IL@=JGGc<QdzBjzKLP161m0
+R1
+Z14 w1786700928
+8rtl/protocol_engine/crc_gen_check.v
+Frtl/protocol_engine/crc_gen_check.v
+!i122 13
+L0 12 78
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/crc_gen_check.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/crc_gen_check.v|
+!i113 0
+R8
+R2
+verror_mgmt
+R3
+!i10b 1
+!s100 RDbGP;BoCNmIDfYD5b?BC3
+Ig2]:HgaLVELzS:TlW77bd2
+R1
+R14
+8rtl/protocol_engine/error_mgmt.v
+Frtl/protocol_engine/error_mgmt.v
+!i122 14
+L0 9 145
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/error_mgmt.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/error_mgmt.v|
+!i113 0
+R8
+R2
+vflag_reg
+Z15 !s110 1786761392
+!i10b 1
+!s100 9SHVLcnQzb]K=:AmHoeY]2
+I:19^N0ECLG`>PI_WVOd9O3
+R1
+Z16 w1786471812
+8rtl/common/flag_reg.v
+Frtl/common/flag_reg.v
+!i122 1
+L0 1 18
+R5
+R6
+r1
+!s85 0
+31
+Z17 !s108 1786761392.000000
+!s107 rtl/common/flag_reg.v|
+!s90 -reportprogress|300|-work|work|rtl/common/flag_reg.v|
+!i113 0
+R8
+R2
+vfsm_part1
+R3
+!i10b 1
+!s100 RQLU[zJ=z=nEIjA@m=]Bz0
+Ib6PlO]c>DPc6aj:A=3d`Y2
+R1
+R9
+R10
+R11
+!i122 15
+L0 15 123
+R5
+R6
+r1
+!s85 0
+31
+R7
+R12
+R13
+!i113 0
+R8
+R2
+vfsm_part2
+R3
+!i10b 1
+!s100 XZ47M9z[VOU?[5Y:@Hb]<1
+Ih0nVM22hZezHjaLX=8@Xc2
+R1
+w1786761384
+8rtl/protocol_engine/fsm_part2.v
+Frtl/protocol_engine/fsm_part2.v
+!i122 16
+L0 740 144
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/fsm_part2.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/fsm_part2.v|
+!i113 0
+R8
+R2
+vfsm_part3
+R3
+!i10b 1
+!s100 5g73dbnEe=]N<1M2zZ3S31
+IDL5NJiPPUY:Tk>m7CVGgH2
+R1
+R14
+8rtl/protocol_engine/fsm_part3.v
+Frtl/protocol_engine/fsm_part3.v
+!i122 17
+L0 17 255
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/fsm_part3.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/fsm_part3.v|
+!i113 0
+R8
+R2
+virq_ctrl
+Z18 !s110 1786761393
+!i10b 1
+!s100 c_kDnFFT<MEbD4m9gjfEE0
+ITJNdM4OG5E@hn2jml9VzP0
+R1
+Z19 w1786295893
+8rtl/ctrl_int_regs/irq_ctrl.v
+Frtl/ctrl_int_regs/irq_ctrl.v
+!i122 5
+L0 21 94
+R5
+R6
+r1
+!s85 0
+31
+Z20 !s108 1786761393.000000
+!s107 rtl/ctrl_int_regs/irq_ctrl.v|
+!s90 -reportprogress|300|-work|work|rtl/ctrl_int_regs/irq_ctrl.v|
+!i113 0
+R8
+R2
+vmode_fsm
+R18
+!i10b 1
+!s100 F]Y^MO[KU8POKH]Q:SF9I0
+I>E_T7`4fFO`de=XV@mB6I3
+R1
+R19
+8rtl/ctrl_int_regs/mode_fsm.v
+Frtl/ctrl_int_regs/mode_fsm.v
+!i122 6
+L0 20 65
+R5
+R6
+r1
+!s85 0
+31
+R20
+!s107 rtl/ctrl_int_regs/mode_fsm.v|
+!s90 -reportprogress|300|-work|work|rtl/ctrl_int_regs/mode_fsm.v|
+!i113 0
+R8
+R2
+vprotocol_engine
+R3
+!i10b 1
+!s100 GOg1<dG2CW=O1AX4d0FRj3
+I_Y@Ga;^LK@2:mBZkIEg>J1
+R1
+w1786759894
+8rtl/protocol_engine/protocol_engine.v
+Frtl/protocol_engine/protocol_engine.v
+!i122 18
+L0 14 300
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/protocol_engine/../common/can_defs.vh|rtl/protocol_engine/protocol_engine.v|
+!s90 -reportprogress|300|-work|work|rtl/protocol_engine/protocol_engine.v|
+!i113 0
+R8
+R2
+vreg_bank
+R18
+!i10b 1
+!s100 LXF]MoG3;Hh59X[zUCKTQ0
+ImLKod?NWX:C?S_3<<LO;90
+R1
+w1786731125
+8rtl/ctrl_int_regs/reg_bank.v
+Frtl/ctrl_int_regs/reg_bank.v
+!i122 7
+L0 15 225
+R5
+R6
+r1
+!s85 0
+31
+R20
+!s107 rtl/ctrl_int_regs/../common/can_defs.vh|rtl/ctrl_int_regs/reg_bank.v|
+!s90 -reportprogress|300|-work|work|rtl/ctrl_int_regs/reg_bank.v|
+!i113 0
+R8
+R2
+vrx_buffer
+R3
+!i10b 1
+!s100 TNB5AD7E::0ZiS`cNUAQA1
+Ikf_`[kCgWLhlhE1X5aXO41
+R1
+R19
+8rtl/buffers_filters/rx_buffer.v
+Frtl/buffers_filters/rx_buffer.v
+!i122 11
+L0 1 41
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/buffers_filters/rx_buffer.v|
+!s90 -reportprogress|300|-work|work|rtl/buffers_filters/rx_buffer.v|
+!i113 0
+R8
+R2
+vrxcan_sync
+R15
+!i10b 1
+!s100 @FCV=43j]X_O3;H80N4T31
+IWa3emmZa<1KIG5W2i>VWB0
+R1
+R16
+8rtl/common/rxcan_sync.v
+Frtl/common/rxcan_sync.v
+!i122 2
+L0 1 22
+R5
+R6
+r1
+!s85 0
+31
+R17
+!s107 rtl/common/rxcan_sync.v|
+!s90 -reportprogress|300|-work|work|rtl/common/rxcan_sync.v|
+!i113 0
+R8
+R2
+vsat_counter
+R18
+!i10b 1
+!s100 69bC<1A>HW5]FBjITKBH81
+IPlRTIG86AhGiL@D^NeCoM1
+R1
+R16
+8rtl/common/sat_counter.v
+Frtl/common/sat_counter.v
+!i122 3
+L0 1 39
+R5
+R6
+r1
+!s85 0
+31
+R17
+!s107 rtl/common/sat_counter.v|
+!s90 -reportprogress|300|-work|work|rtl/common/sat_counter.v|
+!i113 0
+R8
+R2
+vshift_reg
+R18
+!i10b 1
+!s100 VKJV4MaL^UFCJ5SAKLV862
+I@zOEIT=T=H?RbD8858j[^1
+R1
+R19
+8rtl/common/shift_reg.v
+Frtl/common/shift_reg.v
+!i122 4
+L0 1 24
+R5
+R6
+r1
+!s85 0
+31
+R20
+!s107 rtl/common/shift_reg.v|
+!s90 -reportprogress|300|-work|work|rtl/common/shift_reg.v|
+!i113 0
+R8
+R2
+vspi_if
+R3
+!i10b 1
+!s100 zz_kfH[=?hckX7HLW;eTT2
+I44MnK17Ig^PJ_QYDLYUck1
+R1
+w1786751655
+8rtl/spi_if/spi_if.v
+Frtl/spi_if/spi_if.v
+!i122 8
+L0 218 222
+R5
+R6
+r1
+!s85 0
+31
+R20
+!s107 rtl/spi_if/../common/can_defs.vh|rtl/spi_if/spi_if.v|
+!s90 -reportprogress|300|-work|work|rtl/spi_if/spi_if.v|
+!i113 0
+R8
+R2
+vtb_spi_can_e2e
+!s110 1786761395
+!i10b 1
+!s100 6lZDm1?=b?4N012manm`73
+IQL3aO3WnPbiWklRlf]@fX2
+R1
+w1786761259
+8tb/tb_endToendTest.v
+Ftb/tb_endToendTest.v
+!i122 20
+L0 3 462
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 tb/tb_endToendTest.v|
+!s90 -reportprogress|300|-work|work|tb/tb_endToendTest.v|
+!i113 0
+R8
+R2
+vtx_buffer
+R3
+!i10b 1
+!s100 8COc3N9RH3emXS:460ghU2
+IBIHoBGb@Nd?^^mBLTddGT3
+R1
+R4
+8rtl/buffers_filters/tx_buffer.v
+Frtl/buffers_filters/tx_buffer.v
+!i122 9
+L0 1 46
+R5
+R6
+r1
+!s85 0
+31
+R7
+!s107 rtl/buffers_filters/tx_buffer.v|
+!s90 -reportprogress|300|-work|work|rtl/buffers_filters/tx_buffer.v|
+!i113 0
+R8
+R2

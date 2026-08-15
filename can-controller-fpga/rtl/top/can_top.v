@@ -3,14 +3,9 @@
 // =============================================================================
 // Module : can_top
 // -----------------------------------------------------------------------------
-// SOW-Aligned Integrated Top-Level Module.
-//
-// Scope enforced:
-//   - 1 TX Buffer, 1 RX Buffer
-//   - 1 Acceptance Filter (RXF0), 1 Acceptance Mask (RXM0)
-//   - Fixed Normal Operating Mode
-//   - Full SPI Host CDC & Interrupt Line Management
-//   - Direct Protocol Engine Interface Integration
+// Integrated Top-Level Module.
+// Scope: 1 TX Buffer, 1 RX Buffer, 1 Filter, Fixed Normal Mode.
+// CDC modules removed: All internal modules operate strictly on 'clk'.
 // =============================================================================
 
 module can_top (
@@ -20,8 +15,8 @@ module can_top (
     // SPI host interface
     input  wire        sck,
     input  wire        si,
-    input  wire        cs_n,
     output wire        so,
+    input  wire        cs_n,
 
     // Physical CAN bus pins
     input  wire        rx_pin,
@@ -33,7 +28,7 @@ module can_top (
 );
 
     // -------------------------------------------------------------------------
-    // SPI & CDC Internal Bus Declarations
+    // Direct SPI Host & Register Bus Wires
     // -------------------------------------------------------------------------
     wire [7:0] spi_addr;
     wire [7:0] spi_wdata;
@@ -45,15 +40,8 @@ module can_top (
     wire [7:0] status_byte;
     wire [7:0] rxstatus_byte;
 
-    wire [7:0] spi_addr_cdc;
-    wire [7:0] spi_wdata_cdc;
-    wire       spi_we_cdc;
-    wire       spi_reset_cdc;
-    wire       spi_rts_cdc;
-    wire       spi_rxbuf_done_cdc;
-
     // -------------------------------------------------------------------------
-    // Buffer, Control, & Status Wires
+    // Internal Buffer, Control, & Status Signals
     // -------------------------------------------------------------------------
     wire [10:0] txb0_id;
     wire [63:0] txb0_data;
@@ -86,9 +74,8 @@ module can_top (
     wire        filt_rtr_out;
 
     wire        int_req_core;
-    wire        int_n_sync;
 
-    // Unused buffer status wires
+    // Unused outputs
     wire [10:0] unused_tx_buf_id;
     wire [63:0] unused_tx_buf_data;
     wire [3:0]  unused_tx_buf_dlc;
@@ -122,83 +109,18 @@ module can_top (
     );
 
     // -------------------------------------------------------------------------
-    // 2) CDC Synchronization
-    // -------------------------------------------------------------------------
-    cdc_handshake #(.DATA_WIDTH(8)) u_addr_cdc (
-        .src_clk     (clk),
-        .src_rst_n   (rst_n),
-        .src_data    (spi_addr),
-        .src_valid   (spi_we),
-        .src_busy    (),
-        .dst_clk     (clk),
-        .dst_rst_n   (rst_n),
-        .dst_data    (spi_addr_cdc),
-        .valid_pulse (),
-        .dst_ack     ()
-    );
-
-    cdc_handshake #(.DATA_WIDTH(8)) u_wdata_cdc (
-        .src_clk     (clk),
-        .src_rst_n   (rst_n),
-        .src_data    (spi_wdata),
-        .src_valid   (spi_we),
-        .src_busy    (),
-        .dst_clk     (clk),
-        .dst_rst_n   (rst_n),
-        .dst_data    (spi_wdata_cdc),
-        .valid_pulse (),
-        .dst_ack     ()
-    );
-
-    sync_2ff_edge u_we_cdc (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .d              (spi_we),
-        .sync_out       (spi_we_cdc),
-        .posedge_pulse  (),
-        .negedge_pulse  ()
-    );
-
-    sync_2ff_edge u_reset_cdc (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .d              (spi_reset_pulse),
-        .sync_out       (spi_reset_cdc),
-        .posedge_pulse  (),
-        .negedge_pulse  ()
-    );
-
-    sync_2ff_edge u_rts_cdc (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .d              (spi_rts_pulse),
-        .sync_out       (spi_rts_cdc),
-        .posedge_pulse  (),
-        .negedge_pulse  ()
-    );
-
-    sync_2ff_edge u_rxbuf_done_cdc (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .d              (spi_rxbuf_done),
-        .sync_out       (spi_rxbuf_done_cdc),
-        .posedge_pulse  (),
-        .negedge_pulse  ()
-    );
-
-    // -------------------------------------------------------------------------
-    // 3) Trimmed SOW Control Register Bank
+    // 2) Control Register Bank (Direct Wiring)
     // -------------------------------------------------------------------------
     reg_bank u_reg_bank (
         .clk           (clk),
         .rst_n         (rst_n),
-        .addr          (spi_addr_cdc),
-        .wdata         (spi_wdata_cdc),
-        .we            (spi_we_cdc),
+        .addr          (spi_addr),
+        .wdata         (spi_wdata),
+        .we            (spi_we),
         .rdata         (spi_rdata),
-        .reset_pulse   (spi_reset_cdc),
-        .rts_pulse     (spi_rts_cdc),
-        .rxbuf_done    (spi_rxbuf_done_cdc),
+        .reset_pulse   (spi_reset_pulse),
+        .rts_pulse     (spi_rts_pulse),
+        .rxbuf_done    (spi_rxbuf_done),
         .status_byte   (status_byte),
         .rxstatus_byte (rxstatus_byte),
         .int_n         (int_req_core),
@@ -228,12 +150,12 @@ module can_top (
     );
 
     // -------------------------------------------------------------------------
-    // 4) Single Hardware TX Buffer
+    // 3) Single Hardware TX Buffer
     // -------------------------------------------------------------------------
     tx_buffer u_tx_buffer (
         .clk          (clk),
         .reset        (~rst_n),
-        .write_enable (spi_we_cdc && (spi_addr_cdc >= 8'h30) && (spi_addr_cdc <= 8'h3D)),
+        .write_enable (spi_we && (spi_addr >= 8'h30) && (spi_addr <= 8'h3D)),
         .tx_id        (txb0_id),
         .tx_data      (txb0_data),
         .tx_dlc       (txb0_dlc),
@@ -248,7 +170,7 @@ module can_top (
     );
 
     // -------------------------------------------------------------------------
-    // 5) Top Protocol Engine Instance
+    // 4) Protocol Engine
     // -------------------------------------------------------------------------
     protocol_engine u_protocol_engine (
         .clk            (clk),
@@ -281,25 +203,14 @@ module can_top (
         .latched_dlc    (),
         .tq_index       (),
         .rxm0_mask      (rxm0_mask),
-        .rxf0_id        (rxf0_id)
+        .rxf0_id       (rxf0_id)
     );
 
-    // -------------------------------------------------------------------------
-    // 6) Interrupt Line Synchronizer
-    // -------------------------------------------------------------------------
-    sync_2ff_edge u_int_cdc (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .d              (int_req_core),
-        .sync_out       (int_n_sync),
-        .posedge_pulse  (),
-        .negedge_pulse  ()
-    );
-
-    assign int_n = int_n_sync;
+    // Interrupt signal direct assignment (already generated in clk domain)
+    assign int_n = int_req_core;
 
     // -------------------------------------------------------------------------
-    // 7) Acceptance Filter & Hardware RX Buffer
+    // 5) Acceptance Filter & Hardware RX Buffer
     // -------------------------------------------------------------------------
     accept_filter u_accept_filter (
         .frame_valid (pe_rx_done),
@@ -324,7 +235,7 @@ module can_top (
         .rx_data      (filt_data_out),
         .rx_dlc       (filt_dlc_out),
         .rx_rtr       (filt_rtr_out),
-        .cpu_read     (spi_rxbuf_done_cdc),
+        .cpu_read     (spi_rxbuf_done),
         .full         (rxb0_full),
         .id           (unused_rx_buf_id),
         .data         (unused_rx_buf_data),
